@@ -4,11 +4,16 @@ RKS Agent — Interactive CLI runner
 Run with:
     python main.py
 
-Uses the compiled graph from agent.py with MemorySaver so state
-(including rks_fields and rks_draft_json) persists across turns.
+Two interrupt() nodes pause the graph mid-execution:
+  - upload_boq  : graph pauses waiting for a PDF path (or "skip")
+  - review_rks  : graph pauses waiting for approval / revision instructions
 
-The interrupt() in `review_rks` is handled here: after the graph
-pauses, we read the user's next input and resume with Command(resume=...).
+When paused, snapshot.interrupts[0].value contains the question the node
+asked via interrupt(message). We print that before reading user input.
+
+For clarify_rks (not an interrupt node), the agent emits an AIMessage
+asking for one field at a time, then returns to __end__. The outer loop
+picks up the next user message normally.
 """
 
 from __future__ import annotations
@@ -18,20 +23,40 @@ from langgraph.types import Command
 
 from agent import graph
 
+# Nodes that use interrupt() — need Command(resume=...) to continue
+INTERRUPT_NODES = {"upload_boq", "review_rks"}
+
+# Human-readable prompt labels shown before input() per context
+PROMPT_LABELS = {
+    "upload_boq":  "📂 Path file / skip",
+    "review_rks":  "✍️  Keputusan Anda   ",
+    "clarify":     "📝 Jawaban Anda     ",
+    "default":     "Anda               ",
+}
+
 
 def run():
     config = {"configurable": {"thread_id": "session-1"}}
 
     print("=" * 60)
-    print(" RKS Assistant — PT Pertamina")
-    print(" Ketik 'exit' atau 'quit' untuk keluar.")
+    print("  RKS Assistant — PT Pertamina")
+    print("  Ketik 'exit' atau 'quit' untuk keluar.")
     print("=" * 60)
     print()
 
     while True:
+        # ── Detect if we're mid-clarification (state already has rks_fields) ──
+        snapshot = graph.get_state(config)
+        in_clarification = (
+            snapshot.values.get("rks_fields")
+            and snapshot.values.get("source_used") in ("document_maker", "document_maker_clarify")
+        ) if snapshot.values else False
+
+        prompt_label = PROMPT_LABELS["clarify"] if in_clarification else PROMPT_LABELS["default"]
+
         # ── Get user input ──────────────────────────────────────
         try:
-            user_input = input("Anda: ").strip()
+            user_input = input(f"{prompt_label}: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\n[Agent] Sampai jumpa!")
             break
@@ -52,39 +77,55 @@ def run():
             print(f"[Error] {e}\n")
             continue
 
-        # ── Print the last AI message ────────────────────────────
         _print_last_ai(state)
 
-        # ── Handle interrupt (review_rks pause) ──────────────────
-        # Check if the graph is paused at an interrupt node
+        # ── Handle interrupt() pauses ─────────────────────────────
+        _handle_interrupts(config)
+
+
+def _handle_interrupts(config: dict):
+    """
+    After each graph.invoke(), check if the graph paused at an interrupt() call.
+    - Print the interrupt message (the question the node asked).
+    - Show a context-specific input prompt.
+    - Resume with Command(resume=user_input).
+    - Loop until the graph reaches __end__ or no more interrupts.
+    """
+    while True:
         snapshot = graph.get_state(config)
-        if snapshot.next and "review_rks" in snapshot.next:
-            # Graph is waiting for human approval — loop to read input
-            while True:
-                try:
-                    review_input = input("Anda: ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    break
 
-                if not review_input:
-                    continue
+        # Check if paused at one of our interrupt nodes
+        paused_at = set(snapshot.next) & INTERRUPT_NODES if snapshot.next else set()
+        if not paused_at:
+            break
 
-                # Resume the graph with the user's decision
-                try:
-                    state = graph.invoke(
-                        Command(resume=review_input),
-                        config=config,
-                    )
-                except Exception as e:
-                    print(f"[Error] {e}\n")
-                    break
+        # Print the question the node asked via interrupt(message)
+        if snapshot.interrupts:
+            question = snapshot.interrupts[0].value
+            print(f"\nAgent: {question}\n")
 
-                _print_last_ai(state)
+        # Show a descriptive prompt so the user knows what type of input is needed
+        node_name = next(iter(paused_at))
+        prompt_label = PROMPT_LABELS.get(node_name, PROMPT_LABELS["default"])
 
-                # Check if we're paused again (e.g. revision requested → re-generated → paused again)
-                snapshot = graph.get_state(config)
-                if not (snapshot.next and "review_rks" in snapshot.next):
-                    break
+        try:
+            user_input = input(f"{prompt_label}: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+
+        if not user_input:
+            continue
+
+        try:
+            state = graph.invoke(
+                Command(resume=user_input),
+                config=config,
+            )
+        except Exception as e:
+            print(f"[Error] {e}\n")
+            break
+
+        _print_last_ai(state)
 
 
 def _print_last_ai(state: dict):
@@ -94,7 +135,6 @@ def _print_last_ai(state: dict):
         if hasattr(msg, "content") and msg.__class__.__name__ in ("AIMessage", "ChatMessage"):
             print(f"\nAgent: {msg.content}\n")
             return
-    # Fallback: print the very last message regardless of type
     if messages:
         last = messages[-1]
         content = last.content if hasattr(last, "content") else str(last)
