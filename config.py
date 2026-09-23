@@ -1,0 +1,1 @@
+EMBEDDING_MODEL = "sentence-transformers/all-minilm-l6-v2"
