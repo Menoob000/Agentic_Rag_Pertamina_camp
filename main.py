@@ -1,76 +1,105 @@
-from langchain_openrouter import ChatOpenRouter
-from typing import Literal
-from langchain.messages import HumanMessage, SystemMessage
-from langchain.tools import tool
-from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.graph import StateGraph, MessagesState
-from langgraph.graph.message import BaseMessage
-from langchain_tavily import TavilySearch
-from typing import List, Dict, Any, TypedDict, Optional, Annotated
-from operator import add
-from langchain_core.documents import Document
+"""
+RKS Agent — Interactive CLI runner
+===================================
+Run with:
+    python main.py
 
-from dotenv import load_dotenv
+Uses the compiled graph from agent.py with MemorySaver so state
+(including rks_fields and rks_draft_json) persists across turns.
 
-load_dotenv()
+The interrupt() in `review_rks` is handled here: after the graph
+pauses, we read the user's next input and resume with Command(resume=...).
+"""
 
-def main():
+from __future__ import annotations
 
-    @tool
-    def search(query: str):
-        """Call to surf the web."""
-        tavily_search_tool = TavilySearch()
-        return tavily_search_tool.invoke(query)
+from langchain_core.messages import HumanMessage
+from langgraph.types import Command
 
-    tools = [search]
+from agent import graph
 
-    model = ChatOpenRouter(
-        model="deepseek/deepseek-v4.1-flash",
-        temperature=0,
-    )
 
-    # def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:
-    #     messages = state['messages']
-    #     last_message = messages[-1]
-    #     if last_message.tool_calls:
-    #         return "tools"
-    #     return "__end__"
+def run():
+    config = {"configurable": {"thread_id": "session-1"}}
 
-    class AgentState(TypedDict): 
-        messages : Annotated[List[BaseMessage], add]
+    print("=" * 60)
+    print(" RKS Assistant — PT Pertamina")
+    print(" Ketik 'exit' atau 'quit' untuk keluar.")
+    print("=" * 60)
+    print()
 
-    llm_with_tools = model.bind_tools(tools)
-    def call_model(state: AgentState):
-        messages = state['messages']
-        system = f"""You are an intelligent agent that will use the tools provided to you \n" \
-        "to help the user get their answer as factualy as possible. " \
-        "You are provided the following tools : " \
-        "{tools}"""
+    while True:
+        # ── Get user input ──────────────────────────────────────
+        try:
+            user_input = input("Anda: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n[Agent] Sampai jumpa!")
+            break
 
-        message = [SystemMessage(system)] + messages 
-        # Invoking `model` will automatically infer the correct tracing context
-        response = llm_with_tools.invoke(message)
-        return {"messages": [response]}
+        if not user_input:
+            continue
+        if user_input.lower() in {"exit", "quit", "keluar"}:
+            print("[Agent] Sampai jumpa!")
+            break
 
-    tool_node = ToolNode(tools)    
-    workflow = StateGraph(AgentState)
-    workflow.add_node("agent", call_model)
-    workflow.add_node("tools", tool_node)
-    workflow.add_edge("__start__", "agent")
-    workflow.add_conditional_edges(
-        "agent",
-        tools_condition,
-    )
-    workflow.add_edge("tools", 'agent')
+        # ── Invoke graph ─────────────────────────────────────────
+        try:
+            state = graph.invoke(
+                {"messages": [HumanMessage(content=user_input)]},
+                config=config,
+            )
+        except Exception as e:
+            print(f"[Error] {e}\n")
+            continue
 
-    app = workflow.compile()
+        # ── Print the last AI message ────────────────────────────
+        _print_last_ai(state)
 
-    final_state = app.invoke(
-        {"messages": [HumanMessage(content="Who won the latest world cup")]},
-        config={"configurable": {"thread_id": 42}}
-    )
+        # ── Handle interrupt (review_rks pause) ──────────────────
+        # Check if the graph is paused at an interrupt node
+        snapshot = graph.get_state(config)
+        if snapshot.next and "review_rks" in snapshot.next:
+            # Graph is waiting for human approval — loop to read input
+            while True:
+                try:
+                    review_input = input("Anda: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    break
 
-    print(final_state["messages"][-1].content)
+                if not review_input:
+                    continue
+
+                # Resume the graph with the user's decision
+                try:
+                    state = graph.invoke(
+                        Command(resume=review_input),
+                        config=config,
+                    )
+                except Exception as e:
+                    print(f"[Error] {e}\n")
+                    break
+
+                _print_last_ai(state)
+
+                # Check if we're paused again (e.g. revision requested → re-generated → paused again)
+                snapshot = graph.get_state(config)
+                if not (snapshot.next and "review_rks" in snapshot.next):
+                    break
+
+
+def _print_last_ai(state: dict):
+    """Print the last AI message from the graph state."""
+    messages = state.get("messages", [])
+    for msg in reversed(messages):
+        if hasattr(msg, "content") and msg.__class__.__name__ in ("AIMessage", "ChatMessage"):
+            print(f"\nAgent: {msg.content}\n")
+            return
+    # Fallback: print the very last message regardless of type
+    if messages:
+        last = messages[-1]
+        content = last.content if hasattr(last, "content") else str(last)
+        print(f"\nAgent: {content}\n")
+
 
 if __name__ == "__main__":
-    main()
+    run()

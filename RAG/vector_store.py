@@ -73,6 +73,13 @@ class Vector_Store():
     def retrieve_documents(self, query): 
         results = self.doc_store.similarity_search(query, k=3)
         return [doc.page_content for doc in results]
+
+    def _retriever_(self): 
+        retriever = self.doc_store.as_retriever(
+            search_type="mmr",
+            search_kwargs={"k": 1, "fetch_k": 2, "lambda_mult": 0.5},
+        )
+        return retriever
     
 def main():
     logging.info('v5')
