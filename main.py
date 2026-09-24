@@ -1,76 +1,145 @@
-from langchain_openrouter import ChatOpenRouter
-from typing import Literal
-from langchain.messages import HumanMessage, SystemMessage
-from langchain.tools import tool
-from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.graph import StateGraph, MessagesState
-from langgraph.graph.message import BaseMessage
-from langchain_tavily import TavilySearch
-from typing import List, Dict, Any, TypedDict, Optional, Annotated
-from operator import add
-from langchain_core.documents import Document
+"""
+RKS Agent — Interactive CLI runner
+===================================
+Run with:
+    python main.py
 
-from dotenv import load_dotenv
+Two interrupt() nodes pause the graph mid-execution:
+  - upload_boq  : graph pauses waiting for a PDF path (or "skip")
+  - review_rks  : graph pauses waiting for approval / revision instructions
 
-load_dotenv()
+When paused, snapshot.interrupts[0].value contains the question the node
+asked via interrupt(message). We print that before reading user input.
 
-def main():
+For clarify_rks (not an interrupt node), the agent emits an AIMessage
+asking for one field at a time, then returns to __end__. The outer loop
+picks up the next user message normally.
+"""
 
-    @tool
-    def search(query: str):
-        """Call to surf the web."""
-        tavily_search_tool = TavilySearch()
-        return tavily_search_tool.invoke(query)
+from __future__ import annotations
 
-    tools = [search]
+from langchain_core.messages import HumanMessage
+from langgraph.types import Command
 
-    model = ChatOpenRouter(
-        model="deepseek/deepseek-v4.1-flash",
-        temperature=0,
-    )
+from agent import graph
 
-    # def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:
-    #     messages = state['messages']
-    #     last_message = messages[-1]
-    #     if last_message.tool_calls:
-    #         return "tools"
-    #     return "__end__"
+# Nodes that use interrupt() — need Command(resume=...) to continue
+INTERRUPT_NODES = {"upload_boq", "review_rks"}
 
-    class AgentState(TypedDict): 
-        messages : Annotated[List[BaseMessage], add]
+# Human-readable prompt labels shown before input() per context
+PROMPT_LABELS = {
+    "upload_boq":  "📂 Path file / skip",
+    "review_rks":  "✍️  Keputusan Anda   ",
+    "clarify":     "📝 Jawaban Anda     ",
+    "default":     "Anda               ",
+}
 
-    llm_with_tools = model.bind_tools(tools)
-    def call_model(state: AgentState):
-        messages = state['messages']
-        system = f"""You are an intelligent agent that will use the tools provided to you \n" \
-        "to help the user get their answer as factualy as possible. " \
-        "You are provided the following tools : " \
-        "{tools}"""
 
-        message = [SystemMessage(system)] + messages 
-        # Invoking `model` will automatically infer the correct tracing context
-        response = llm_with_tools.invoke(message)
-        return {"messages": [response]}
+def run():
+    config = {"configurable": {"thread_id": "session-1"}}
 
-    tool_node = ToolNode(tools)    
-    workflow = StateGraph(AgentState)
-    workflow.add_node("agent", call_model)
-    workflow.add_node("tools", tool_node)
-    workflow.add_edge("__start__", "agent")
-    workflow.add_conditional_edges(
-        "agent",
-        tools_condition,
-    )
-    workflow.add_edge("tools", 'agent')
+    print("=" * 60)
+    print("  RKS Assistant — PT Pertamina")
+    print("  Ketik 'exit' atau 'quit' untuk keluar.")
+    print("=" * 60)
+    print()
 
-    app = workflow.compile()
+    while True:
+        # ── Detect if we're mid-clarification (state already has rks_fields) ──
+        snapshot = graph.get_state(config)
+        in_clarification = (
+            snapshot.values.get("rks_fields")
+            and snapshot.values.get("source_used") in ("document_maker", "document_maker_clarify")
+        ) if snapshot.values else False
 
-    final_state = app.invoke(
-        {"messages": [HumanMessage(content="Who won the latest world cup")]},
-        config={"configurable": {"thread_id": 42}}
-    )
+        prompt_label = PROMPT_LABELS["clarify"] if in_clarification else PROMPT_LABELS["default"]
 
-    print(final_state["messages"][-1].content)
+        # ── Get user input ──────────────────────────────────────
+        try:
+            user_input = input(f"{prompt_label}: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n[Agent] Sampai jumpa!")
+            break
+
+        if not user_input:
+            continue
+        if user_input.lower() in {"exit", "quit", "keluar"}:
+            print("[Agent] Sampai jumpa!")
+            break
+
+        # ── Invoke graph ─────────────────────────────────────────
+        try:
+            state = graph.invoke(
+                {"messages": [HumanMessage(content=user_input)]},
+                config=config,
+            )
+        except Exception as e:
+            print(f"[Error] {e}\n")
+            continue
+
+        _print_last_ai(state)
+
+        # ── Handle interrupt() pauses ─────────────────────────────
+        _handle_interrupts(config)
+
+
+def _handle_interrupts(config: dict):
+    """
+    After each graph.invoke(), check if the graph paused at an interrupt() call.
+    - Print the interrupt message (the question the node asked).
+    - Show a context-specific input prompt.
+    - Resume with Command(resume=user_input).
+    - Loop until the graph reaches __end__ or no more interrupts.
+    """
+    while True:
+        snapshot = graph.get_state(config)
+
+        # Check if paused at one of our interrupt nodes
+        paused_at = set(snapshot.next) & INTERRUPT_NODES if snapshot.next else set()
+        if not paused_at:
+            break
+
+        # Print the question the node asked via interrupt(message)
+        if snapshot.interrupts:
+            question = snapshot.interrupts[0].value
+            print(f"\nAgent: {question}\n")
+
+        # Show a descriptive prompt so the user knows what type of input is needed
+        node_name = next(iter(paused_at))
+        prompt_label = PROMPT_LABELS.get(node_name, PROMPT_LABELS["default"])
+
+        try:
+            user_input = input(f"{prompt_label}: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+
+        if not user_input:
+            continue
+
+        try:
+            state = graph.invoke(
+                Command(resume=user_input),
+                config=config,
+            )
+        except Exception as e:
+            print(f"[Error] {e}\n")
+            break
+
+        _print_last_ai(state)
+
+
+def _print_last_ai(state: dict):
+    """Print the last AI message from the graph state."""
+    messages = state.get("messages", [])
+    for msg in reversed(messages):
+        if hasattr(msg, "content") and msg.__class__.__name__ in ("AIMessage", "ChatMessage"):
+            print(f"\nAgent: {msg.content}\n")
+            return
+    if messages:
+        last = messages[-1]
+        content = last.content if hasattr(last, "content") else str(last)
+        print(f"\nAgent: {content}\n")
+
 
 if __name__ == "__main__":
-    main()
+    run()

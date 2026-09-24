@@ -147,14 +147,14 @@ def _add_formatted_paragraph(doc, text: str, font_name: str = "Arial", font_size
 
 def _render_cover_page(doc: Document, draft_data: dict, config: dict):
     """Render the RKS cover page based on the Pertamina RKS standard."""
-    cover = draft_data.get("cover_page", {})
-    styling = config.get("styling", {})
+    cover = draft_data.get("cover_page") or {}
+    styling = config.get("styling") or {}
     font = styling.get("font_heading", "Arial")
 
     section = doc.sections[0]
 
     # Add page border if enabled
-    if config.get("elemen_formal", {}).get("page_border", True):
+    if (config.get("elemen_formal") or {}).get("page_border", True):
         _add_page_border(section)
 
     # ── Title: "RENCANA KERJA DAN SYARAT-SYARAT (RKS)" in a bordered box ──
@@ -265,7 +265,7 @@ def _render_cover_page(doc: Document, draft_data: dict, config: dict):
     # ── Company name at bottom ──
     nama_perusahaan = cover.get(
         "nama_perusahaan",
-        config.get("perusahaan", {}).get("nama_default", "PT PERTAMINA (PERSERO)")
+        (config.get("perusahaan") or {}).get("nama_default", "PT PERTAMINA (PERSERO)")
     )
     _add_formatted_paragraph(
         doc,
@@ -286,8 +286,8 @@ def _render_cover_page(doc: Document, draft_data: dict, config: dict):
 
 def _render_approval_sheet(doc: Document, draft_data: dict, config: dict):
     """Render the approval/sign-off sheet."""
-    pengesahan = draft_data.get("pengesahan", {})
-    font = config.get("styling", {}).get("font_heading", "Arial")
+    pengesahan = draft_data.get("pengesahan") or {}
+    font = (config.get("styling") or {}).get("font_heading", "Arial")
 
     _add_formatted_paragraph(
         doc, "LEMBAR PENGESAHAN",
@@ -314,9 +314,9 @@ def _render_approval_sheet(doc: Document, draft_data: dict, config: dict):
 
     # Data rows
     roles = [
-        ("Disusun oleh", pengesahan.get("disusun_oleh", {})),
-        ("Diperiksa oleh", pengesahan.get("diperiksa_oleh", {})),
-        ("Disetujui oleh", pengesahan.get("disetujui_oleh", {})),
+        ("Disusun oleh", pengesahan.get("disusun_oleh") or {}),
+        ("Diperiksa oleh", pengesahan.get("diperiksa_oleh") or {}),
+        ("Disetujui oleh", pengesahan.get("disetujui_oleh") or {}),
     ]
 
     for row_idx, (role, data) in enumerate(roles, start=1):
@@ -368,7 +368,7 @@ def _render_approval_sheet(doc: Document, draft_data: dict, config: dict):
 
 def _render_toc(doc: Document, config: dict):
     """Add a Table of Contents placeholder (user updates in Word with F9)."""
-    font = config.get("styling", {}).get("font_heading", "Arial")
+    font = (config.get("styling") or {}).get("font_heading", "Arial")
 
     _add_formatted_paragraph(
         doc, "DAFTAR ISI",
@@ -409,12 +409,12 @@ def _render_toc(doc: Document, config: dict):
 
 def _setup_header_footer(section, draft_data: dict, config: dict):
     """Set up header with logo/company name and footer with doc number/page."""
-    meta = draft_data.get("metadata", {})
-    company = draft_data.get("cover_page", {}).get(
+    meta = draft_data.get("metadata") or {}
+    company = (draft_data.get("cover_page") or {}).get(
         "nama_perusahaan",
-        config.get("perusahaan", {}).get("nama_default", "PT PERTAMINA (PERSERO)")
+        (config.get("perusahaan") or {}).get("nama_default", "PT PERTAMINA (PERSERO)")
     )
-    font = config.get("styling", {}).get("font_heading", "Arial")
+    font = (config.get("styling") or {}).get("font_heading", "Arial")
     nomor_dok = meta.get("nomor_dokumen", "")
 
     # ── Header ──
@@ -490,14 +490,14 @@ def _setup_header_footer(section, draft_data: dict, config: dict):
 
 def _render_content(doc: Document, draft_data: dict, config: dict):
     """Render all bab and sub-bab content."""
-    styling = config.get("styling", {})
+    styling = config.get("styling") or {}
     font_body = styling.get("font_body", "Arial")
     font_heading = styling.get("font_heading", "Arial")
     size_body = styling.get("font_size_body", 12)
     size_heading = styling.get("font_size_heading", 14)
     line_spacing = styling.get("line_spacing", 1.5)
 
-    for bab in draft_data.get("bab", []):
+    for bab in draft_data.get("bab") or []:
         nomor = bab.get("nomor", "")
         judul = bab.get("judul", "")
 
@@ -508,7 +508,7 @@ def _render_content(doc: Document, draft_data: dict, config: dict):
             run.font.size = Pt(size_heading)
             run.font.color.rgb = RGBColor(0, 0, 0)
 
-        for sub in bab.get("sub_bab", []):
+        for sub in bab.get("sub_bab") or []:
             sub_nomor = sub.get("nomor", "")
             sub_judul = sub.get("judul", "")
             tipe = sub.get("tipe", "paragraf")
@@ -577,8 +577,8 @@ def _render_table(doc: Document, table_data, font_name: str):
     if not isinstance(table_data, dict):
         return
 
-    headers = table_data.get("headers", [])
-    rows = table_data.get("rows", [])
+    headers = table_data.get("headers") or []
+    rows = table_data.get("rows") or []
 
     if not headers:
         return
@@ -637,8 +637,8 @@ def render_to_docx(draft_data: dict, output_filename: str = "") -> str:
         str: Absolute path to the generated .docx file
     """
     config = _load_config()
-    styling = config.get("styling", {})
-    elemen = config.get("elemen_formal", {})
+    styling = config.get("styling") or {}
+    elemen = config.get("elemen_formal") or {}
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -689,7 +689,7 @@ def render_to_docx(draft_data: dict, output_filename: str = "") -> str:
 
     # ── Save ──
     if not output_filename:
-        cover = draft_data.get("cover_page", {})
+        cover = draft_data.get("cover_page") or {}
         name_part = cover.get("judul_pekerjaan", "RKS_Document")
         safe_name = "".join(
             c if c.isalnum() or c in (" ", "-", "_") else "_"
