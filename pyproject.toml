@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    'langchain-openrouter',
+    "langchain-openrouter",
     'langgraph',
     'langchain',
     "dotenv>=0.9.9",
@@ -22,4 +22,7 @@ dependencies = [
     "langchain-huggingface>=1.2.2",
     "sentence-transformers>=6.1.0",
     "docling-core>=2.98.0",
+    "fastapi>=0.141.1",
+    "uvicorn>=0.53.0",
+    "python-multipart>=0.0.32",
 ]
