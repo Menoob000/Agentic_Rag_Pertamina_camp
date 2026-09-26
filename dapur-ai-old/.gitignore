@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.env
+# Virtual environments
+.venv
+
+# Project specific directories
+chroma_db/
+drafts/
+output/
+#assets/logo_pertamina.png
+
+# Dependency lock files
+uv.lock

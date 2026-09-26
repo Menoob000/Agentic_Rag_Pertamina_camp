@@ -1,0 +1,175 @@
+# ═══════════════════════════════════════════════════════════
+# ITec-Ai — Docker Compose Configuration
+# Sistem AI Pembuat Dokumen RKS Tender Terdekopel
+#
+# Services:
+#   1. web-app    → Zona Wadah (Laravel 11 + PHP-FPM + Nginx)
+#   2. dapur-ai   → Zona Dapur (Python FastAPI + AI Agent)
+#   3. db         → PostgreSQL 16 (Database Relasional)
+#   4. qdrant-db  → Qdrant Vector DB (Fase 2 — dikomentari)
+# ═══════════════════════════════════════════════════════════
+
+services:
+
+  # ──────────────────────────────────────────────
+  # ZONA WADAH — Aplikasi Web Laravel
+  # Port: 80 (HTTP)
+  # ──────────────────────────────────────────────
+  web-app:
+    build:
+      context: ./wadah-web
+      dockerfile: Dockerfile
+    image: itec-wadah-image:latest
+    container_name: itec-wadah
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      db:
+        condition: service_healthy
+      dapur-ai:
+        condition: service_started
+    environment:
+      APP_NAME: ${APP_NAME:-ITec-Ai RKS System}
+      APP_ENV: ${APP_ENV:-production}
+      APP_KEY: ${APP_KEY:-base64:TO_BE_GENERATED}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      APP_URL: ${APP_URL:-http://localhost}
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-itec_rks}
+      DB_USERNAME: ${DB_USERNAME:-itec_admin}
+      DB_PASSWORD: ${DB_PASSWORD:-secret_password_change_me}
+      SESSION_DRIVER: database
+      DAPUR_AI_URL: http://dapur-ai:8000
+      DAPUR_AI_TIMEOUT: ${DAPUR_AI_TIMEOUT:-300}
+      QUEUE_CONNECTION: database
+    networks:
+      - rks-net
+    volumes:
+      - ./wadah-web:/var/www/html
+      - wadah-storage:/var/www/html/storage
+
+  # ──────────────────────────────────────────────
+  # ZONA WADAH — Queue Worker (Menjalankan Background Job)
+  # ──────────────────────────────────────────────
+  queue-worker:
+    image: itec-wadah-image:latest
+    container_name: itec-queue-worker
+    restart: unless-stopped
+    command: php artisan queue:work --timeout=600 --tries=3
+    depends_on:
+      db:
+        condition: service_healthy
+      dapur-ai:
+        condition: service_started
+    environment:
+      APP_NAME: ${APP_NAME:-ITec-Ai RKS System}
+      APP_ENV: ${APP_ENV:-production}
+      APP_KEY: ${APP_KEY:-base64:TO_BE_GENERATED}
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-itec_rks}
+      DB_USERNAME: ${DB_USERNAME:-itec_admin}
+      DB_PASSWORD: ${DB_PASSWORD:-secret_password_change_me}
+      DAPUR_AI_URL: http://dapur-ai:8000
+      DAPUR_AI_TIMEOUT: ${DAPUR_AI_TIMEOUT:-300}
+      QUEUE_CONNECTION: database
+    networks:
+      - rks-net
+    volumes:
+      - ./wadah-web:/var/www/html
+      - wadah-storage:/var/www/html/storage
+
+  # ──────────────────────────────────────────────
+  # ZONA DAPUR — AI Microservice (FastAPI)
+  # Port: 8000 (internal), 8000 (external untuk debug)
+  # ──────────────────────────────────────────────
+  dapur-ai:
+    build:
+      context: ./dapur-ai
+      dockerfile: Dockerfile
+    image: itec-dapur-image:latest
+    container_name: itec-dapur
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-sk-or-v1-your-api-key-here}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-qwen/qwen3.7-flash}
+      QDRANT_CLUSTER_ENDPOINT: ${QDRANT_CLUSTER_ENDPOINT:-https://your-cluster.qdrant.io:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-your-qdrant-api-key}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-minilm-l6-v2}
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    volumes:
+      - dapur-output:/app/output
+      - dapur-drafts:/app/drafts
+    networks:
+      - rks-net
+
+  # ──────────────────────────────────────────────
+  # DATABASE — PostgreSQL 16
+  # Port: 5432 (internal only)
+  # ──────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: itec-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-itec_rks}
+      POSTGRES_USER: ${DB_USERNAME:-itec_admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret_password_change_me}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks:
+      - rks-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-itec_admin} -d ${DB_DATABASE:-itec_rks}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ──────────────────────────────────────────────
+  # QDRANT — Vector Database (FASE 2)
+  # Aktifkan dengan menghapus komentar di bawah
+  # Port: 6333 (REST API), 6334 (gRPC)
+  # ──────────────────────────────────────────────
+  # qdrant-db:
+  #   image: qdrant/qdrant:latest
+  #   container_name: itec-qdrant
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6333:6333"
+  #     - "6334:6334"
+  #   volumes:
+  #     - qdrant-data:/qdrant/storage
+  #   networks:
+  #     - rks-net
+
+# ──────────────────────────────────────────────
+# Volumes (Persistent Storage)
+# ──────────────────────────────────────────────
+volumes:
+  pg-data:
+    driver: local
+  wadah-storage:
+    driver: local
+  dapur-output:
+    driver: local
+  dapur-drafts:
+    driver: local
+  # qdrant-data:          # Fase 2
+  #   driver: local
+
+# ──────────────────────────────────────────────
+# Networks
+# ──────────────────────────────────────────────
+networks:
+  rks-net:
+    driver: bridge
+    name: itec-rks-network
