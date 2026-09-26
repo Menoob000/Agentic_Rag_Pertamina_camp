@@ -66,6 +66,20 @@ class GenerateTenderDocumentTool:
         # Additional context (e.g. from RKS or BOQ)
         context_summary = kwargs.get("context_summary", "")
 
+        # Retrieve similar RKS examples from Qdrant Vector Store (RAG)
+        kb_context_text = ""
+        try:
+            from RAG.vector_store import Vector_Store
+            vs = Vector_Store()
+            query = f"Struktur, isi, dan spesifikasi RKS untuk pekerjaan {nama_pengadaan}"
+            results = vs.doc_store.similarity_search(query, k=3)
+            kb_context_text = "\n\n".join(
+                f"[Referensi {i+1}]\n{doc.page_content}" for i, doc in enumerate(results)
+            )
+            print(f"[RAG Retrieval] Found {len(results)} docs for: {nama_pengadaan}")
+        except Exception as e:
+            print(f"[RAG Retrieval] Error or Vector Store empty: {e}")
+
         # Call OpenRouter LLM
         llm = ChatOpenRouter(model="qwen/qwen3.7-flash", temperature=0)
 
@@ -88,13 +102,16 @@ Tugas kamu adalah menyusun dynamic data untuk Dokumen Tender berdasarkan paramet
 - Jadwal Pre-Bid Meeting       : {prebid_tgl} ({prebid_waktu}) di {prebid_tempat}
 - Jadwal Pemasukan Penawaran   : {pemasukan_mulai} s.d. {pemasukan_selesai}
 
-Konteks Tambahan (RKS / BOQ):
+Konteks Tambahan (RKS / BOQ yang diunggah pengguna):
 {context_summary}
+
+Referensi Dokumen Tender/RKS Sejenis (Dari Knowledge Base Perusahaan):
+{kb_context_text}
 
 Fokus Tugas Khusus LLM:
 1. Tentukan Kode Bidang Usaha Pertamina (KBUP) dan KBLI yang relevan dan presisi untuk pekerjaan ini.
 2. Buat rincian Lampiran 2A (Syarat dan Kriteria Evaluasi Teknis) yang spesifik untuk jenis pekerjaan ini (minimal 4 kriteria dengan dokumen pembuktian, parameter evaluasi terukur, dan bobot yang berjumlah 100).
-3. Rincikan lingkup pekerjaan (scope of work) untuk Pasal 2 Bagian B (Rancangan Kontrak).
+3. Rincikan lingkup pekerjaan (scope of work) untuk Pasal 2 Bagian B (Rancangan Kontrak). Pastikan selaras dengan Referensi Sejenis di atas jika tersedia.
 
 Output HARUS berupa JSON valid persis sesuai dengan schema berikut:
 {DOKUMEN_TENDER_JSON_SCHEMA}
