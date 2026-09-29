@@ -5,11 +5,47 @@ from fastapi.responses import FileResponse
 from fastapi.concurrency import run_in_threadpool
 import uvicorn
 
-from RAG.summarizer import extract_text_from_pdfs, summarize_context
+from RAG.summarizer import extract_text_from_pdfs, summarize_context, extract_tender_metadata_from_docs
 from RAG.tools import generate_rks_document, export_rks_to_docx
 from tender.generator import generate_tender_document, export_tender_to_docx
 
 app = FastAPI(title="Pertamina RKS & Tender AI System - API")
+
+@app.post("/api/extract-tender-metadata")
+async def extract_tender_metadata(
+    tanggal: str = Form(""),
+    resiko_csms: str = Form("Tinggi"),
+    file_rks: Optional[UploadFile] = File(None, description="Dokumen RKS (PDF)"),
+    file_boq: Optional[UploadFile] = File(None, description="Dokumen BOQ (PDF or Excel)"),
+):
+    """Scan and extract procurement metadata from RKS & BOQ files using LLM."""
+    try:
+        rks_bytes = None
+        rks_filename = None
+        if file_rks and file_rks.filename:
+            rks_bytes = await file_rks.read()
+            rks_filename = file_rks.filename
+
+        boq_bytes = None
+        boq_filename = None
+        if file_boq and file_boq.filename:
+            boq_bytes = await file_boq.read()
+            boq_filename = file_boq.filename
+
+        extracted_data = await run_in_threadpool(
+            extract_tender_metadata_from_docs,
+            rks_bytes=rks_bytes,
+            rks_filename=rks_filename,
+            boq_bytes=boq_bytes,
+            boq_filename=boq_filename,
+            tanggal_str=tanggal,
+            resiko_csms=resiko_csms
+        )
+
+        return {"status": "success", "data": extracted_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/generate-tender")
 async def generate_tender(
@@ -31,11 +67,11 @@ async def generate_tender(
     prebid_tempat: str = Form("Microsoft Teams Meeting dengan link yang disampaikan melalui email Undangan Prebid Meeting"),
     pemasukan_mulai: str = Form("Senin, 08 Desember 2025"),
     pemasukan_selesai: str = Form("Senin, 15 Desember 2025"),
+    context_summary: str = Form(""),
     file: Optional[UploadFile] = File(None, description="Upload RKS or BOQ PDF file for context")
 ):
     try:
-        context_summary = ""
-        if file and file.filename and file.filename.lower().endswith(".pdf"):
+        if not context_summary and file and file.filename and file.filename.lower().endswith(".pdf"):
             print(f"Receiving context file: {file.filename}...")
             content = await file.read()
             raw_text = await run_in_threadpool(extract_text_from_pdfs, [content])
