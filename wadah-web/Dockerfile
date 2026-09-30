@@ -7,7 +7,7 @@
 FROM composer:2 AS composer-stage
 
 WORKDIR /app
-COPY composer.json ./
+COPY composer.json composer.lock ./
 RUN composer install \
     --no-dev \
     --no-scripts \
@@ -15,7 +15,7 @@ RUN composer install \
     --prefer-dist
 
 COPY . .
-RUN composer dump-autoload --optimize
+RUN composer dump-autoload --optimize --no-scripts
 
 
 # Stage 2: Production image
