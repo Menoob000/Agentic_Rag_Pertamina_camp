@@ -109,6 +109,7 @@ services:
     volumes:
       - dapur-output:/app/output
       - dapur-drafts:/app/drafts
+      - dapur-rag-data:/app/RAG/Data
     networks:
       - rks-net
 
@@ -139,17 +140,17 @@ services:
   # Aktifkan dengan menghapus komentar di bawah
   # Port: 6333 (REST API), 6334 (gRPC)
   # ──────────────────────────────────────────────
-  # qdrant-db:
-  #   image: qdrant/qdrant:latest
-  #   container_name: itec-qdrant
-  #   restart: unless-stopped
-  #   ports:
-  #     - "6333:6333"
-  #     - "6334:6334"
-  #   volumes:
-  #     - qdrant-data:/qdrant/storage
-  #   networks:
-  #     - rks-net
+  qdrant-db:
+    image: qdrant/qdrant:latest
+    container_name: itec-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks:
+      - rks-net
 
 # ──────────────────────────────────────────────
 # Volumes (Persistent Storage)
@@ -163,8 +164,10 @@ volumes:
     driver: local
   dapur-drafts:
     driver: local
-  # qdrant-data:          # Fase 2
-  #   driver: local
+  dapur-rag-data:
+    driver: local
+  qdrant-data:          # Fase 2
+    driver: local
 
 # ──────────────────────────────────────────────
 # Networks

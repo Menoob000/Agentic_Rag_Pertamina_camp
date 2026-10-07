@@ -43,4 +43,7 @@ Route::middleware('auth')->group(function () {
     // Knowledge Base Management
     Route::get('/knowledge', [\App\Http\Controllers\KnowledgeController::class, 'index'])->name('knowledge.index');
     Route::post('/knowledge/upload', [\App\Http\Controllers\KnowledgeController::class, 'upload'])->name('knowledge.upload');
+    Route::get('/knowledge/status', [\App\Http\Controllers\KnowledgeController::class, 'status'])->name('knowledge.status');
+    Route::post('/knowledge/ingest-all', [\App\Http\Controllers\KnowledgeController::class, 'ingestAll'])->name('knowledge.ingestAll');
+    Route::delete('/knowledge/{filename}', [\App\Http\Controllers\KnowledgeController::class, 'destroy'])->where('filename', '.*')->name('knowledge.destroy');
 });

@@ -1,0 +1,26 @@
+# Kebutuhan Instalasi Pengetesan (Testing Requirements)
+
+Karena kita menggunakan k6 dan Playwright versi JavaScript/Node.js, instalasinya tidak menggunakan `pip` (Python), melainkan menggunakan `npm` (Node Package Manager).
+
+Berikut adalah langkah-langkah yang bisa Anda jalankan sendiri di dalam folder `scenario-test` ini:
+
+1. Inisialisasi Project Node (Jika belum ada package.json):
+   npm init -y
+
+2. Install framework Playwright:
+   npm install -D @playwright/test
+
+3. Install browser engine yang dibutuhkan oleh Playwright (Chromium):
+   npx playwright install chromium
+
+4. (Opsional) Jika Anda ingin menguji API menggunakan k6 (seperti api-test-v1.js), pastikan aplikasi k6 sudah terinstal di sistem Windows Anda.
+   Download k6: https://k6.io/docs/get-started/installation/
+
+---
+# Cara Menjalankan Skenario
+
+- Menjalankan tes UI/Web Playwright secara visual:
+  npx playwright test --ui
+
+- Menjalankan tes API k6:
+  k6 run api-test-v1.js

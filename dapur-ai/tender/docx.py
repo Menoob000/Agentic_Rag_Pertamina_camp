@@ -114,6 +114,94 @@ def _remove_page_border(section):
         sectPr.remove(pgBorders)
 
 
+def _escape_xml(text: Any) -> str:
+    """Escape special characters for XML attribute and text values."""
+    if text is None:
+        return ""
+    s = str(text)
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
+
+
+def _add_dropdown_control(paragraph, label: str, options: List[str], current_value: Optional[str] = None):
+    """
+    Insert a Word Content Control Dropdown List (<w:dropDownList>) into a paragraph.
+    Allows users in Microsoft Word to click and select an option from a dropdown list.
+    """
+    val = current_value if current_value and current_value in options else (options[0] if options else "")
+    tag_val = label.lower().replace(" ", "_")
+    
+    label_esc = _escape_xml(label)
+    tag_esc = _escape_xml(tag_val)
+    val_esc = _escape_xml(val)
+    items_xml = "".join([
+        f'<w:listItem w:displayText="{_escape_xml(opt)}" w:value="{_escape_xml(opt)}"/>'
+        for opt in options
+    ])
+
+    sdt_xml = f'''<w:sdt {nsdecls("w")}>
+      <w:sdtPr>
+        <w:alias w:val="{label_esc}"/>
+        <w:tag w:val="{tag_esc}"/>
+        <w:dropDownList>
+          {items_xml}
+        </w:dropDownList>
+      </w:sdtPr>
+      <w:sdtContent>
+        <w:r>
+          <w:rPr>
+            <w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>
+            <w:sz w:val="19"/>
+            <w:color w:val="002D62"/>
+          </w:rPr>
+          <w:t>{val_esc}</w:t>
+        </w:r>
+      </w:sdtContent>
+    </w:sdt>'''
+
+    paragraph._p.append(parse_xml(sdt_xml))
+
+
+def _add_date_picker_control(paragraph, label: str, current_date_str: str = "Senin, 08 Desember 2025"):
+    """
+    Insert a Word Content Control Date Picker (<w:date>) into a paragraph.
+    Allows users in Microsoft Word to click the dropdown arrow to pick a date from an interactive calendar.
+    """
+    label_esc = _escape_xml(label)
+    tag_esc = _escape_xml(label.lower().replace(" ", "_"))
+    date_esc = _escape_xml(current_date_str)
+
+    sdt_xml = f'''<w:sdt {nsdecls("w")}>
+      <w:sdtPr>
+        <w:alias w:val="{label_esc}"/>
+        <w:tag w:val="{tag_esc}"/>
+        <w:date>
+          <w:dateFormat w:val="dddd, dd MMMM yyyy"/>
+          <w:lid w:val="id-ID"/>
+          <w:storeMappedDataAs w:val="dateTime"/>
+          <w:calendar w:val="gregorian"/>
+        </w:date>
+      </w:sdtPr>
+      <w:sdtContent>
+        <w:r>
+          <w:rPr>
+            <w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>
+            <w:sz w:val="18"/>
+            <w:color w:val="002D62"/>
+          </w:rPr>
+          <w:t>{date_esc}</w:t>
+        </w:r>
+      </w:sdtContent>
+    </w:sdt>'''
+
+    paragraph._p.append(parse_xml(sdt_xml))
+
+
 def _add_paragraph(doc, text: str = "", font_name: str = "Arial", font_size: int = 11,
                    bold: bool = False, italic: bool = False,
                    alignment=WD_ALIGN_PARAGRAPH.LEFT,
@@ -473,6 +561,13 @@ def _render_bab_i_ketentuan_khusus(doc: Document, tender_data: dict):
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     col_widths = (Cm(5.5), Cm(11.5))
 
+    border_kwargs = {
+        "top": {"sz": "4", "val": "single", "color": COLOR_LIGHT_GRAY},
+        "bottom": {"sz": "4", "val": "single", "color": COLOR_LIGHT_GRAY},
+        "left": {"sz": "4", "val": "single", "color": COLOR_LIGHT_GRAY},
+        "right": {"sz": "4", "val": "single", "color": COLOR_LIGHT_GRAY},
+    }
+
     def _add_row(no_str: str, label: str, content_val: Any):
         row = table.add_row()
         c0, c1 = row.cells[0], row.cells[1]
@@ -482,12 +577,6 @@ def _render_bab_i_ketentuan_khusus(doc: Document, tender_data: dict):
         _set_cell_margins(c1, top=100, bottom=100, left=120, right=120)
 
         # Apply borders
-        border_kwargs = {
-            "top": {"sz": "4", "val": "single", "color": COLOR_LIGHT_GRAY},
-            "bottom": {"sz": "4", "val": "single", "color": COLOR_LIGHT_GRAY},
-            "left": {"sz": "4", "val": "single", "color": COLOR_LIGHT_GRAY},
-            "right": {"sz": "4", "val": "single", "color": COLOR_LIGHT_GRAY},
-        }
         _set_cell_border(c0, **border_kwargs)
         _set_cell_border(c1, **border_kwargs)
 
@@ -524,9 +613,46 @@ def _render_bab_i_ketentuan_khusus(doc: Document, tender_data: dict):
 
     # Row 1 to 6
     _add_row("1", "Penyelenggara Pemilihan Penyedia", kk.get("penyelenggara", "Fungsi Procurement (Pengadaan)"))
-    _add_row("2", "Kategori Pengadaan", kk.get("kategori_pengadaan", "Pengadaan dalam Kondisi Normal"))
-    _add_row("3", "Pemilihan Penyedia", kk.get("pemilihan_penyedia", "Pertama"))
-    _add_row("4", "Syarat Status Peserta", kk.get("syarat_status_peserta", "Tunggal"))
+    
+    # 2. Kategori Pengadaan (Dropdown)
+    c2 = _add_row("2", "Kategori Pengadaan", "")
+    _add_dropdown_control(
+        c2.paragraphs[0],
+        label="Kategori Pengadaan",
+        options=[
+            "Pengadaan dalam Kondisi Normal",
+            "Pengadaan dalam Kondisi Urgent",
+            "Pengadaan Kondisi Emergency"
+        ],
+        current_value=kk.get("kategori_pengadaan", "Pengadaan dalam Kondisi Normal")
+    )
+
+    # 3. Pemilihan Penyedia (Dropdown)
+    c3 = _add_row("3", "Pemilihan Penyedia", "")
+    _add_dropdown_control(
+        c3.paragraphs[0],
+        label="Pemilihan Penyedia",
+        options=[
+            "Pertama",
+            "Kedua",
+            "Ketiga"
+        ],
+        current_value=kk.get("pemilihan_penyedia", "Pertama")
+    )
+
+    # 4. Syarat Status Peserta (Dropdown)
+    c4 = _add_row("4", "Syarat Status Peserta", "")
+    _add_dropdown_control(
+        c4.paragraphs[0],
+        label="Syarat Status Peserta",
+        options=[
+            "Tunggal",
+            "Konsorsium",
+            "Tunggal dan Konsorsium"
+        ],
+        current_value=kk.get("syarat_status_peserta", "Tunggal")
+    )
+
     _add_row("5", "Syarat Golongan Usaha", f"1. Syarat golongan usaha bagi Peserta Tunggal adalah {kk.get('syarat_golongan_usaha', 'Menengah')}")
 
     csms_info = kk.get("syarat_kualifikasi_csms") or {}
@@ -562,23 +688,94 @@ def _render_bab_i_ketentuan_khusus(doc: Document, tender_data: dict):
             r.font.name = "Arial"
             r.font.size = Pt(8)
 
-    # Row 8 to 10
-    _add_row("8", "Metode Pemenuhan Kebutuhan", kk.get("metode_pemenuhan", "Tender Terbatas"))
+    # 8. Metode Pemenuhan Kebutuhan (Dropdown)
+    c8 = _add_row("8", "Metode Pemenuhan Kebutuhan", "")
+    _add_dropdown_control(
+        c8.paragraphs[0],
+        label="Metode Pemenuhan Kebutuhan",
+        options=[
+            "Sinergi Pertamina Group dengan Penunjukan kepada EBPG",
+            "Sinergi Pertamina Group dengan Penugasan kepada EBPG",
+            "Sinergi Pertamina Group dengan Pemilihan Langsung antar EBPG",
+            "Tender Terbuka",
+            "Tender Terbatas",
+            "Pemilihan Langsung",
+            "Tender Praktis",
+            "Penunjukan Langsung"
+        ],
+        current_value=kk.get("metode_pemenuhan", "Tender Terbatas")
+    )
     _add_row("9", "Pejabat Berwenang", kk.get("pejabat_berwenang", "Sr. Manager Opt. & Maint. Regional Kalimantan"))
     _add_row("10", "Pengawas Pekerjaan/Wakil Perusahaan", kk.get("pengawas_pekerjaan", "Region Manager RPD Regional Kalimantan"))
 
-    # Row 11: Pre-bid meeting
+    # Row 11: Pre-bid meeting with interactive Date Picker Dropdown in table
     prebid = kk.get("jadwal_prebid") or {}
-    c11 = _add_row("11", "Tahapan dan tata waktu Penjelasan Pekerjaan", [
-        "1. Rapat Penjelasan (Pre-Bid Meeting):",
-        f"   Mekanisme : {prebid.get('mekanisme', 'Online')}",
-        f"   Hari, Tanggal : {prebid.get('hari_tanggal', 'Senin, 08 Desember 2025')}",
-        f"   Waktu : {prebid.get('waktu', '10.00 WITA')}",
-        f"   Tempat : {prebid.get('tempat', 'Microsoft Teams Meeting')}",
-        "Catatan:",
-        "1. Undangan disampaikan pada SAPP-SmartGEP.",
-        "2. Jumlah maksimal perwakilan peserta Pre-Bid Meeting adalah 5 (lima) orang."
-    ])
+    c11 = _add_row("11", "Tahapan dan tata waktu Penjelasan Pekerjaan", "")
+    p_intro = c11.paragraphs[0]
+    r_intro = p_intro.add_run("1. Rapat Penjelasan (Pre-Bid Meeting) dilaksanakan dengan jadwal sebagai berikut:")
+    r_intro.font.name = "Arial"
+    r_intro.font.size = Pt(9.5)
+    p_intro.paragraph_format.space_after = Pt(4)
+
+    # Sub-table for Pre-Bid Meeting schedule with interactive Date Picker
+    sub_t11 = c11.add_table(rows=2, cols=4)
+    sub_t11.alignment = WD_TABLE_ALIGNMENT.CENTER
+    sub_t11_headers = ["Tahapan / Kegiatan", "Hari, Tanggal", "Waktu", "Tempat / Media"]
+    for idx_h, h_text in enumerate(sub_t11_headers):
+        c_h = sub_t11.cell(0, idx_h)
+        _set_cell_shading(c_h, COLOR_HEADER_BG)
+        _set_cell_margins(c_h, top=60, bottom=60, left=80, right=80)
+        _set_cell_border(c_h, **border_kwargs)
+        p = c_h.paragraphs[0]
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(0)
+        r = p.add_run(h_text)
+        r.font.name = "Arial"
+        r.font.size = Pt(8.5)
+        r.font.bold = True
+
+    r1_cells = sub_t11.rows[1].cells
+    for c in r1_cells:
+        _set_cell_margins(c, top=60, bottom=60, left=80, right=80)
+        _set_cell_border(c, **border_kwargs)
+
+    p_act = r1_cells[0].paragraphs[0]
+    p_act.paragraph_format.space_before = Pt(0)
+    p_act.paragraph_format.space_after = Pt(0)
+    r_act = p_act.add_run("Rapat Penjelasan\n(Pre-Bid Meeting)")
+    r_act.font.name = "Arial"
+    r_act.font.size = Pt(8.5)
+
+    p_date = r1_cells[1].paragraphs[0]
+    p_date.paragraph_format.space_before = Pt(0)
+    p_date.paragraph_format.space_after = Pt(0)
+    _add_date_picker_control(
+        p_date,
+        label="Pilih Hari Tanggal Pre-Bid",
+        current_date_str=prebid.get("hari_tanggal", "Senin, 08 Desember 2025")
+    )
+
+    p_time = r1_cells[2].paragraphs[0]
+    p_time.paragraph_format.space_before = Pt(0)
+    p_time.paragraph_format.space_after = Pt(0)
+    r_time = p_time.add_run(prebid.get("waktu", "10.00 WITA"))
+    r_time.font.name = "Arial"
+    r_time.font.size = Pt(8.5)
+
+    p_place = r1_cells[3].paragraphs[0]
+    p_place.paragraph_format.space_before = Pt(0)
+    p_place.paragraph_format.space_after = Pt(0)
+    r_place = p_place.add_run(prebid.get("tempat", "Microsoft Teams Meeting"))
+    r_place.font.name = "Arial"
+    r_place.font.size = Pt(8.5)
+
+    p_note = c11.add_paragraph()
+    p_note.paragraph_format.space_before = Pt(6)
+    p_note.paragraph_format.space_after = Pt(2)
+    r_note = p_note.add_run("Catatan:\n1. Undangan disampaikan pada SAPP-SmartGEP.\n2. Jumlah maksimal perwakilan peserta Pre-Bid Meeting adalah 5 (lima) orang.")
+    r_note.font.name = "Arial"
+    r_note.font.size = Pt(9)
+    r_note.font.italic = True
 
     # Row 12: Pemasukan Penawaran
     pemasukan = kk.get("jadwal_pemasukan") or {}
@@ -590,18 +787,117 @@ def _render_bab_i_ketentuan_khusus(doc: Document, tender_data: dict):
     ])
 
     # Row 13 to 22
-    _add_row("13", "Masa berlaku Dokumen Penawaran", kk.get("masa_berlaku_penawaran", "Penawaran berlaku selama 90 (sembilan puluh) Hari Kalender sejak Pembukaan Dokumen Penawaran"))
+    # 13. Masa berlaku Dokumen Penawaran (Dropdown)
+    c13 = _add_row("13", "Masa berlaku Dokumen Penawaran", "")
+    _add_dropdown_control(
+        c13.paragraphs[0],
+        label="Masa Berlaku Dokumen Penawaran",
+        options=[
+            "Penawaran berlaku selama 90 (sembilan puluh) Hari Kalender sejak Pembukaan Dokumen Penawaran",
+            "Penawaran berlaku selama 180 (seratus delapan puluh) Hari Kalender sejak Pembukaan Dokumen Penawaran"
+        ],
+        current_value=kk.get("masa_berlaku_penawaran", "Penawaran berlaku selama 90 (sembilan puluh) Hari Kalender sejak Pembukaan Dokumen Penawaran")
+    )
+
     _add_row("14", "Mekanisme permintaan penjelasan", kk.get("mekanisme_permintaan_penjelasan", "Peserta hanya dapat menyampaikan pertanyaan klarifikasi saat Pre-Bid Meeting."))
     _add_row("15", "Ketentuan Kehadiran saat Penjelasan Pekerjaan", kk.get("ketentuan_kehadiran_penjelasan", "Wajib Hadir (Ketidakhadiran tidak menggugurkan, namun risiko ditanggung Peserta)."))
-    _add_row("16", "Metode Penyampaian Dokumen", kk.get("metode_penyampaian_penawaran", "1 (satu) tahap 1 (satu) Sampul"))
+
+    # 16. Metode dan Ketentuan Penyampaian Dokumen Penawaran (Dropdown)
+    c16 = _add_row("16", "Metode dan Ketentuan Penyampaian Dokumen Penawaran", "")
+    _add_dropdown_control(
+        c16.paragraphs[0],
+        label="Metode Penyampaian Dokumen Penawaran",
+        options=[
+            "1 (satu) tahap 1 (satu) Sampul",
+            "1 (satu) tahap 2 (dua) Sampul",
+            "2 (dua) tahap 2 (dua) Sampul"
+        ],
+        current_value=kk.get("metode_penyampaian_penawaran", "1 (satu) tahap 1 (satu) Sampul")
+    )
+
     _add_row("17", "Syarat dibukanya Penawaran", kk.get("syarat_dibukanya_penawaran", "Terdapat sekurang-kurangnya 2 (dua) Peserta yang menyampaikan penawaran sah."))
-    _add_row("18", "Kehadiran Pembukaan Penawaran", kk.get("ketentuan_kehadiran_pembukaan", "Pembukaan dokumen penawaran tidak perlu dihadiri Peserta."))
-    _add_row("19", "Ketentuan Klarifikasi Dokumen", [
-        f"Media yang digunakan: {(kk.get('ketentuan_klarifikasi') or {}).get('media', 'Discussion Forum SAPP-SmartGEP')}",
-        f"Maksimal penambahan/perubahan dokumen: {(kk.get('ketentuan_klarifikasi') or {}).get('maks_penambahan', '1 (satu) kali')}",
-        f"Waktu penyampaian perbaikan: {(kk.get('ketentuan_klarifikasi') or {}).get('waktu_penyampaian', '1 (satu) Hari Kerja')}"
-    ])
-    _add_row("20", "Parameter Penetapan Pemenang", kk.get("parameter_penetapan_pemenang", "HEA Terbaik"))
+
+    # 18. Ketentuan Kehadiran Pembukaan Dokumen Penawaran (Dropdown)
+    c18 = _add_row("18", "Ketentuan Kehadiran Pembukaan Dokumen Penawaran", "")
+    _add_dropdown_control(
+        c18.paragraphs[0],
+        label="Kehadiran Pembukaan Dokumen Penawaran",
+        options=[
+            "Pembukaan dokumen penawaran tidak perlu dihadiri Peserta",
+            "Pembukaan dokumen penawaran diperlukan kehadiran Peserta"
+        ],
+        current_value=kk.get("ketentuan_kehadiran_pembukaan", "Pembukaan dokumen penawaran tidak perlu dihadiri Peserta")
+    )
+
+    # 19. Ketentuan Klarifikasi Dokumen Penawaran (Dropdown)
+    c19 = _add_row("19", "Ketentuan Klarifikasi Dokumen Penawaran", "")
+    p19_1 = c19.paragraphs[0]
+    p19_1.paragraph_format.space_before = Pt(0)
+    p19_1.paragraph_format.space_after = Pt(2)
+    r19_1 = p19_1.add_run("Media yang digunakan: ")
+    r19_1.font.name = "Arial"
+    r19_1.font.size = Pt(9.5)
+    _add_dropdown_control(
+        p19_1,
+        label="Media Klarifikasi",
+        options=[
+            "Discussion Forum SAPP-SmartGEP",
+            "Online melalui Microsoft Teams (M-Teams) Meeting",
+            "Offline"
+        ],
+        current_value=(kk.get("ketentuan_klarifikasi") or {}).get("media", "Discussion Forum SAPP-SmartGEP")
+    )
+
+    p19_2 = c19.add_paragraph()
+    p19_2.paragraph_format.space_before = Pt(0)
+    p19_2.paragraph_format.space_after = Pt(2)
+    r19_2 = p19_2.add_run("Penambahan dan/atau perubahan dokumen dapat dilaksanakan sebanyak: ")
+    r19_2.font.name = "Arial"
+    r19_2.font.size = Pt(9.5)
+    _add_dropdown_control(
+        p19_2,
+        label="Maksimal Penambahan Dokumen",
+        options=[
+            "1 (satu) kali",
+            "2 (dua) kali",
+            "3 (tiga) kali"
+        ],
+        current_value=(kk.get("ketentuan_klarifikasi") or {}).get("maks_penambahan", "1 (satu) kali")
+    )
+
+    p19_3 = c19.add_paragraph()
+    p19_3.paragraph_format.space_before = Pt(0)
+    p19_3.paragraph_format.space_after = Pt(0)
+    r19_3 = p19_3.add_run("Waktu penyampaian penambahan dan/atau perubahan dokumen: ")
+    r19_3.font.name = "Arial"
+    r19_3.font.size = Pt(9.5)
+    _add_dropdown_control(
+        p19_3,
+        label="Waktu Penyampaian Perbaikan",
+        options=[
+            "1 (satu) Hari Kerja",
+            "2 (dua) Hari Kerja",
+            "3 (tiga) Hari Kerja"
+        ],
+        current_value=(kk.get("ketentuan_klarifikasi") or {}).get("waktu_penyampaian", "1 (satu) Hari Kerja")
+    )
+
+    # 20. Parameter Penetapan Pemenang (Dropdown)
+    c20 = _add_row("20", "Parameter Penetapan Pemenang", "")
+    _add_dropdown_control(
+        c20.paragraphs[0],
+        label="Parameter Penetapan Pemenang",
+        options=[
+            "Komersial Terbaik",
+            "HEA Terbaik",
+            "Score TCO (Total Cost Ownership)/LCC (Life Cycle Costing) Terbaik",
+            "Score terbaik kombinasi teknis dan komersial",
+            "Score terbaik kombinasi teknis dan HEA",
+            "Teknis Terbaik"
+        ],
+        current_value=kk.get("parameter_penetapan_pemenang", "HEA Terbaik")
+    )
+
     _add_row("21", "Metode Peringkat Peserta", kk.get("metode_peringkat_peserta", "Peringkat Peserta ditentukan dengan metode HEA Terbaik."))
     _add_row("22", "Evaluasi Administrasi", kk.get("evaluasi_administrasi", "Evaluasi administrasi dilakukan dengan metode non-scoring (sistem gugur)."))
 
@@ -613,7 +909,17 @@ def _render_bab_i_ketentuan_khusus(doc: Document, tender_data: dict):
         "3. Kriteria dan parameter evaluasi teknis dirinci pada Lampiran 2A."
     ])
 
-    _add_row("24", "Sanggahan Hasil Evaluasi Fase I", kk.get("sanggahan_fase_1", "Tidak Dibuka Sanggahan Pengumuman Hasil Evaluasi Fase I"))
+    # 24. Sanggahan atas Pengumuman Hasil Evaluasi Fase I (Dropdown)
+    c24 = _add_row("24", "Sanggahan atas Pengumuman Hasil Evaluasi Fase I (Administrasi, Teknis, HSSE Plan)", "")
+    _add_dropdown_control(
+        c24.paragraphs[0],
+        label="Sanggahan Evaluasi Fase I",
+        options=[
+            "Tidak Dibuka Sanggahan Pengumuman Hasil Evaluasi Fase I",
+            "Dibuka Sanggahan Pengumuman Hasil Evaluasi Fase I"
+        ],
+        current_value=kk.get("sanggahan_fase_1", "Tidak Dibuka Sanggahan Pengumuman Hasil Evaluasi Fase I")
+    )
 
     # Row 25: HSSE Plan
     hsse_info = kk.get("evaluasi_hsse_plan") or {}
@@ -623,20 +929,89 @@ def _render_bab_i_ketentuan_khusus(doc: Document, tender_data: dict):
         f"3. Passing Grade: {hsse_info.get('passing_grade', 'Minimal 80% dalam skala 100%')}."
     ])
 
-    # Row 26: TKDN
+    # Row 26: TKDN (Dropdown on Item 3)
     tkdn_info = kk.get("evaluasi_tkdn") or {}
-    _add_row("26", "Evaluasi TKDN", [
-        f"1. Paket Pengadaan ini mempersyaratkan komitmen TKDN Minimal sebesar {tkdn_info.get('minimal_persen', 20.12)}%.",
-        "2. Wajib melampirkan sertifikat TKDN Kemenperin yang masih berlaku untuk komponen barang utama.",
-        f"3. {tkdn_info.get('preferensi_harga', 'Diberikan insentif preferensi harga sesuai ketentuan P3DN.')}"
-    ])
+    c26 = _add_row("26", "Evaluasi TKDN", "")
+    p26_1 = c26.paragraphs[0]
+    p26_1.paragraph_format.space_before = Pt(0)
+    p26_1.paragraph_format.space_after = Pt(2)
+    r26_1 = p26_1.add_run(f"1. Paket Pengadaan ini mempersyaratkan komitmen TKDN Minimal sebesar {tkdn_info.get('minimal_persen', 20.12)}%.")
+    r26_1.font.name = "Arial"
+    r26_1.font.size = Pt(9.5)
 
-    _add_row("27", "Jenis Kontrak", kk.get("jenis_kontrak", "Gabungan Harga Satuan & Lumpsum"))
-    _add_row("28", "Jumlah Pemenang", kk.get("jumlah_pemenang", "Single Winner"))
+    p26_2 = c26.add_paragraph()
+    p26_2.paragraph_format.space_before = Pt(0)
+    p26_2.paragraph_format.space_after = Pt(2)
+    r26_2 = p26_2.add_run("2. Wajib melampirkan sertifikat TKDN Kemenperin yang masih berlaku untuk komponen barang utama.")
+    r26_2.font.name = "Arial"
+    r26_2.font.size = Pt(9.5)
 
-    # Row 29: HPS/OE
+    p26_3 = c26.add_paragraph()
+    p26_3.paragraph_format.space_before = Pt(0)
+    p26_3.paragraph_format.space_after = Pt(0)
+    r26_3 = p26_3.add_run("3. Ketentuan preferensi harga: ")
+    r26_3.font.name = "Arial"
+    r26_3.font.size = Pt(9.5)
+    _add_dropdown_control(
+        p26_3,
+        label="Ketentuan Preferensi Harga",
+        options=[
+            "Diberikan preferensi",
+            "Tidak diberikan preferensi"
+        ],
+        current_value="Diberikan preferensi" if "Diberikan" in tkdn_info.get("preferensi_harga", "Diberikan") else "Tidak diberikan preferensi"
+    )
+
+    # 27. Jenis Kontrak (Dropdown)
+    c27 = _add_row("27", "Jenis Kontrak", "")
+    _add_dropdown_control(
+        c27.paragraphs[0],
+        label="Jenis Kontrak",
+        options=[
+            "Gabungan Harga Satuan & Lumpsum",
+            "Harga Lumpsum",
+            "Harga Satuan",
+            "Harga Satuan (setiap item tidak saling terkait)",
+            "Harga Satuan (setiap item tidak saling terkait, untuk kebutuhan security of supply)"
+        ],
+        current_value=kk.get("jenis_kontrak", "Gabungan Harga Satuan & Lumpsum")
+    )
+
+    # 28. Jumlah Pemenang (Dropdown)
+    c28 = _add_row("28", "Jumlah Pemenang", "")
+    _add_dropdown_control(
+        c28.paragraphs[0],
+        label="Jumlah Pemenang",
+        options=[
+            "Single Winner",
+            "Multi Winner"
+        ],
+        current_value=kk.get("jumlah_pemenang", "Single Winner")
+    )
+
+    # Row 29: HPS/OE (Dropdown for tipe kontrak)
     hps = kk.get("hps_oe") or {}
-    c29 = _add_row("29", "Informasi Nilai HPS/OE", "Untuk Gabungan Harga Satuan & Lumpsum:")
+    c29 = _add_row("29", "Informasi Nilai HPS/OE", "")
+    p29_intro = c29.paragraphs[0]
+    p29_intro.paragraph_format.space_before = Pt(0)
+    p29_intro.paragraph_format.space_after = Pt(4)
+    r29_intro = p29_intro.add_run("Untuk : ")
+    r29_intro.font.name = "Arial"
+    r29_intro.font.size = Pt(9.5)
+    _add_dropdown_control(
+        p29_intro,
+        label="Tipe Kontrak HPS",
+        options=[
+            "Gabungan Harga Satuan & Lumpsum",
+            "Harga Lumpsum",
+            "Harga Satuan"
+        ],
+        current_value="Gabungan Harga Satuan & Lumpsum"
+    )
+    r29_col = p29_intro.add_run(" :")
+    r29_col.font.name = "Arial"
+    r29_col.font.size = Pt(9.5)
+
     sub_hps = c29.add_table(rows=3, cols=3)
     sub_hps.alignment = WD_TABLE_ALIGNMENT.CENTER
     for idx_h, h_text in enumerate(["No.", "Jenis", "Nilai"]):
@@ -663,7 +1038,20 @@ def _render_bab_i_ketentuan_khusus(doc: Document, tender_data: dict):
             r.font.size = Pt(8.5)
 
     _add_row("30", "Tata Cara Evaluasi Komersial", kk.get("tata_cara_evaluasi_komersial", "Item harga satuan & item harga lumpsum dievaluasi secara Total."))
-    _add_row("31", "Mekanisme Koreksi Aritmatika", kk.get("mekanisme_koreksi_aritmatika", "Mekanisme 1"))
+
+    # 31. Mekanisme Koreksi Aritmatika (Dropdown)
+    c31 = _add_row("31", "Mekanisme Koreksi Aritmatika", "")
+    _add_dropdown_control(
+        c31.paragraphs[0],
+        label="Mekanisme Koreksi Aritmatika",
+        options=[
+            "Mekanisme 1",
+            "Mekanisme 2",
+            "Mekanisme 3",
+            "Mekanisme 4"
+        ],
+        current_value=kk.get("mekanisme_koreksi_aritmatika", "Mekanisme 1")
+    )
 
     # Row 32: Negosiasi
     nego = kk.get("ketentuan_negosiasi") or {}
@@ -673,24 +1061,54 @@ def _render_bab_i_ketentuan_khusus(doc: Document, tender_data: dict):
         f"2. Media Negosiasi: {nego.get('media', 'SAPP - SmartGEP')}"
     ])
 
-    _add_row("33", "Sanggahan Pengumuman Pemenang", kk.get("sanggahan_hasil_pemilihan", "Dibuka sanggahan selama 1 (satu) Hari Kerja sejak pengumuman pemenang."))
+    # 33. Sanggahan Pengumuman Hasil Pemilihan Penyedia (Dropdown)
+    c33 = _add_row("33", "Sanggahan Pengumuman Hasil Pemilihan Penyedia", "")
+    _add_dropdown_control(
+        c33.paragraphs[0],
+        label="Sanggahan Pengumuman Hasil Pemilihan",
+        options=[
+            "Tidak dibuka sanggahan Pengumuman Hasil Pemilihan Penyedia",
+            "Dibuka sanggahan Pengumuman Hasil Pemilihan Penyedia"
+        ],
+        current_value="Dibuka sanggahan Pengumuman Hasil Pemilihan Penyedia" if "Dibuka" in str(kk.get("sanggahan_hasil_pemilihan", "")) else "Tidak dibuka sanggahan Pengumuman Hasil Pemilihan Penyedia"
+    )
+
     _add_row("34", "Ketentuan Pemilihan Dinyatakan Gagal", kk.get("ketentuan_tambahan_gagal", "Proses pemilihan dapat dilanjutkan apabila jumlah penawar yang lulus kuorum minimal 2 peserta."))
     _add_row("35", "Eksepsi Rancangan Kontrak", kk.get("eksepsi_rancangan_kontrak", "Tidak diperbolehkan menyampaikan eksepsi atas Rancangan Kontrak."))
 
-    # Row 36: Jaminan
-    _add_row("36", "Ketentuan Jaminan", kk.get("ketentuan_jaminan", [
-        "1. Dipersyaratkan Jaminan Sanggahan (2 permil dari penawaran, maks Rp 100 Juta)",
-        "2. Dipersyaratkan Jaminan Pelaksanaan (5% Nilai Kontrak)",
-        "3. Tidak Dipersyaratkan Jaminan Uang Muka",
-        "4. Dipersyaratkan Jaminan Pemeliharaan (5% Nilai Kontrak)",
-        "5. Dipersyaratkan Jaminan Komitmen TKDN"
-    ]))
+    # Row 36: Jaminan (Dropdown on status only)
+    c36 = _add_row("36", "Ketentuan Jaminan", "")
+    jaminan_items = [
+        ("1. ", " Jaminan Sanggahan (2 permil dari penawaran, maks Rp 100 Juta)", "Dipersyaratkan"),
+        ("2. ", " Jaminan Pelaksanaan (5% Nilai Kontrak)", "Dipersyaratkan"),
+        ("3. ", " Jaminan Uang Muka", "Tidak Dipersyaratkan"),
+        ("4. ", " Jaminan Pemeliharaan (5% Nilai Kontrak)", "Dipersyaratkan"),
+        ("5. ", " Jaminan Komitmen TKDN", "Dipersyaratkan")
+    ]
+    for idx_j, (prefix, suffix, default_opt) in enumerate(jaminan_items):
+        p_j = c36.paragraphs[0] if idx_j == 0 else c36.add_paragraph()
+        p_j.paragraph_format.space_before = Pt(0)
+        p_j.paragraph_format.space_after = Pt(2)
+        r_pre = p_j.add_run(prefix)
+        r_pre.font.name = "Arial"
+        r_pre.font.size = Pt(9.5)
+
+        _add_dropdown_control(
+            p_j,
+            label=f"Status Jaminan {idx_j + 1}",
+            options=["Dipersyaratkan", "Tidak Dipersyaratkan"],
+            current_value=default_opt
+        )
+
+        r_suf = p_j.add_run(suffix)
+        r_suf.font.name = "Arial"
+        r_suf.font.size = Pt(9.5)
 
     _add_row("37", "Ketentuan Denda", kk.get("ketentuan_denda", "Diatur sebagaimana Rancangan Kontrak (1 permil per hari keterlambatan, maksimal 5%)."))
 
-    # Row 38: Lampiran IKPP
+    # Row 38: Lampiran IKPP (Dropdown on rows 1, 6, 9, 11, 12)
     lamp_items = [
-        ("1A", "Surat Penawaran (1A-1 / 1A-2)"),
+        ("1A", "Surat Penawaran"),
         ("1B", "Pakta Integritas Peserta (PI-06)"),
         ("1C", "Surat Pernyataan Penyedia Barang/Jasa"),
         ("1D", "Surat Pernyataan Persetujuan Rancangan Kontrak"),
@@ -700,7 +1118,7 @@ def _render_bab_i_ketentuan_khusus(doc: Document, tender_data: dict):
         ("2B", "Dokumen Penawaran Teknis oleh Peserta"),
         ("3A", "Syarat dan Ketentuan Evaluasi HSSE Plan"),
         ("3B", "Penawaran Dokumen HSSE Plan oleh Peserta"),
-        ("4",  "Form A3 / A4 / A5 Pernyataan Komitmen TKDN"),
+        ("4",  "Pernyataan Komitmen TKDN"),
         ("5A", "Surat Penawaran Komersial"),
         ("5B", "Rincian Penawaran Harga / Bill of Quantity (BoQ)"),
         ("6",  "Surat Penegasan Harga"),
@@ -719,15 +1137,61 @@ def _render_bab_i_ketentuan_khusus(doc: Document, tender_data: dict):
         r.font.name = "Arial"
         r.font.size = Pt(8.5)
         r.font.bold = True
+
+    lamp_dropdowns = {
+        1: [
+            "Digunakan 1A-1: Surat Penawaran. Fom 1A-2 tidak perlu disampaikan",
+            "Digunakan 1A-2: Surat Penawaran Sampul 1. Fom 1A-1 tidak perlu disampaikan"
+        ],
+        6: [
+            "SKUP MIGAS yang masih berlaku atau Surat Pernyataan Status Perusahaan",
+            "SKUP MIGAS atau Surat Pernyataan Status Perusahaan tidak perlu disampaikan"
+        ],
+        9: [
+            "Syarat dan Ketentuan Evaluasi HSSE Plan",
+            "Syarat dan Ketentuan Evaluasi HSSE Plan Tidak digunakan"
+        ],
+        11: [
+            "Digunakan Form A3 (Pernyataan Komitmen TKDN dalam Penawaran Barang). Form A4 dan A5 tidak perlu disampaikan",
+            "Digunakan Form A4 (Pernyataan Komitmen TKDN dalam Penawaran Jasa). Form A3 dan A5 tidak perlu disampaikan",
+            "Digunakan Form A5 (Pernyataan Komitmen TKDN dalam Penawaran Gabungan Barang dan Jasa). Form A3 dan A4 tidak perlu disampaikan",
+            "Form A3, A4, dan A5 tidak perlu disampaikan"
+        ],
+        12: [
+            "Surat Penawaran Komersial tidak perlu disampaikan",
+            "Surat Penawaran Komersial (khusus untuk metode 2 Sampul)"
+        ]
+    }
+
     for idx_l, (no_l, ket_l) in enumerate(lamp_items, start=1):
         r_cells = sub_lamp.rows[idx_l].cells
-        for col_i, text_v in enumerate([str(idx_l), no_l, ket_l]):
+        for col_i in range(3):
             cell_v = r_cells[col_i]
             _set_cell_margins(cell_v, top=60, bottom=60, left=80, right=80)
             p = cell_v.paragraphs[0]
-            r = p.add_run(text_v)
-            r.font.name = "Arial"
-            r.font.size = Pt(8)
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after = Pt(0)
+            if col_i == 0:
+                r = p.add_run(str(idx_l))
+                r.font.name = "Arial"
+                r.font.size = Pt(8)
+            elif col_i == 1:
+                r = p.add_run(no_l)
+                r.font.name = "Arial"
+                r.font.size = Pt(8)
+            else:
+                # Column 2: Keterangan
+                if idx_l in lamp_dropdowns:
+                    _add_dropdown_control(
+                        p,
+                        label=f"Lampiran {no_l}",
+                        options=lamp_dropdowns[idx_l],
+                        current_value=lamp_dropdowns[idx_l][0]
+                    )
+                else:
+                    r = p.add_run(ket_l)
+                    r.font.name = "Arial"
+                    r.font.size = Pt(8)
 
     _add_row("39", "Koordinasi Pemilihan", kk.get("koordinasi_pemilihan", "Discussion Forum SAPP-SmartGEP / Chatbot Spartan Procurement: https://ptm.id/spartan"))
     _add_row("40", "Lain-lain (TTE & e-Meterai)", kk.get("lain_lain", "Seluruh Dokumen Penawaran dan Kontrak wajib dibubuhi e-meterai dan Tanda Tangan Elektronik (TTE) tersertifikasi PSrE."))

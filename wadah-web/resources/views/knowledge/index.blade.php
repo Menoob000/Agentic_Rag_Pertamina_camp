@@ -68,9 +68,103 @@
     </form>
 </div>
 
+
+<div class="card" id="knowledge-list-card" style="margin-top:24px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+        <div>
+            <h2 style="margin:0;font-size:1.1rem">Dokumen di Knowledge Base</h2>
+            <p class="form-help" style="margin:4px 0 0">
+                Total <strong id="kb-total-chunks">0</strong> chunk tersimpan di Qdrant
+                <span id="kb-live" style="display:none">· <em>memperbarui status…</em></span>
+            </p>
+        </div>
+        <form method="POST" action="{{ route('knowledge.ingestAll') }}" onsubmit="return confirm('Ingest ulang semua PDF di server? Proses bisa memakan beberapa menit.')">
+            @csrf
+            <button type="submit" class="btn btn-primary" id="btn-ingest-all">Ingest Semua PDF</button>
+        </form>
+    </div>
+
+    <div class="alert alert-error" id="kb-error" style="display:none"></div>
+
+    <table class="data-table" id="kb-table" style="width:100%;border-collapse:collapse">
+        <thead>
+            <tr style="text-align:left;border-bottom:1px solid #e5e7eb">
+                <th style="padding:8px">Nama File</th>
+                <th style="padding:8px">Status</th>
+                <th style="padding:8px">Chunk</th>
+                <th style="padding:8px"></th>
+            </tr>
+        </thead>
+        <tbody id="kb-tbody">
+            <tr id="kb-loading"><td colspan="4" style="padding:16px;text-align:center;color:#6b7280">Memuat daftar dokumen...</td></tr>
+        </tbody>
+    </table>
+</div>
+
 @endsection
 
 @section('scripts')
+<script>
+    (function () {
+        const labels = { done: 'Selesai ✔', processing: 'Memproses…', error: 'Gagal ✖', not_ingested: 'Belum di-ingest' };
+        const tbody = document.getElementById('kb-tbody');
+        const totalChunksEl = document.getElementById('kb-total-chunks');
+        const liveEl = document.getElementById('kb-live');
+        const errorEl = document.getElementById('kb-error');
+        const destroyUrlBase = "{{ url('/knowledge') }}";
+
+        function renderRows(items) {
+            if (!items || items.length === 0) {
+                tbody.innerHTML = '<tr id="kb-empty"><td colspan="4" style="padding:16px;text-align:center;color:#6b7280">Belum ada dokumen. Unggah PDF di atas atau klik "Ingest Semua PDF".</td></tr>';
+                return;
+            }
+            const csrfToken = document.querySelector('input[name="_token"]')?.value || '{{ csrf_token() }}';
+            tbody.innerHTML = items.map(it => {
+                const label = labels[it.state] || it.state;
+                const errTitle = it.error ? `title="${it.error.replace(/"/g, '&quot;')}"` : '';
+                return `
+                    <tr data-name="${it.filename}" style="border-bottom:1px solid #f3f4f6">
+                        <td style="padding:8px">${it.filename}</td>
+                        <td style="padding:8px" class="kb-state" data-raw="${it.state}" ${errTitle}>${label}</td>
+                        <td style="padding:8px" class="kb-chunks">${it.chunks}</td>
+                        <td style="padding:8px;text-align:right">
+                            <form method="POST" action="${destroyUrlBase}/${encodeURIComponent(it.filename)}" onsubmit="return confirm('Hapus dokumen ini dari Knowledge Base?')" style="display:inline">
+                                <input type="hidden" name="_token" value="${csrfToken}">
+                                <input type="hidden" name="_method" value="DELETE">
+                                <button type="submit" class="btn btn-secondary btn-delete-doc">Hapus</button>
+                            </form>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function loadStatus() {
+            fetch('{{ route('knowledge.status') }}', { headers: { 'Accept': 'application/json' } })
+                .then(r => {
+                    if (!r.ok) throw new Error('Status HTTP ' + r.status);
+                    return r.json();
+                })
+                .then(d => {
+                    errorEl.style.display = 'none';
+                    totalChunksEl.textContent = d.total_chunks || 0;
+                    renderRows(d.items);
+                    const hasProcessing = (d.items || []).some(it => it.state === 'processing');
+                    liveEl.style.display = hasProcessing ? 'inline' : 'none';
+                    if (hasProcessing) {
+                        setTimeout(loadStatus, 4000);
+                    }
+                })
+                .catch(err => {
+                    errorEl.textContent = 'Tidak dapat membaca status Knowledge Base: ' + err.message;
+                    errorEl.style.display = 'block';
+                    tbody.innerHTML = '<tr><td colspan="4" style="padding:16px;text-align:center;color:#ef4444">Gagal memuat dokumen.</td></tr>';
+                });
+        }
+
+        loadStatus();
+    })();
+</script>
 <script>
     // File upload interaction
     const fileInput = document.getElementById('document');

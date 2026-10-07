@@ -9,7 +9,13 @@ Thumbs.db
 .vscode/
 
 # ========================
-# Python (Dapur AI)
+# Environment & Sensitif
+# ========================
+.env
+!.env.example
+
+# ========================
+# Python & Dapur AI
 # ========================
 __pycache__/
 *.py[cod]
@@ -17,6 +23,10 @@ __pycache__/
 .venv/
 dist/
 build/
+dapur-ai/output/
+dapur-ai/drafts/
+dapur-ai/assets copy/
+dapur-ai-old/
 
 # ========================
 # PHP / Laravel (Wadah Web)
@@ -30,12 +40,14 @@ wadah-web/storage/framework/views/*
 wadah-web/bootstrap/cache/*
 
 # ========================
+# Scenario Test & Playwright
+# ========================
+scenario-test/node_modules/
+scenario-test/test-results/
+scenario-test/playwright-report/
+scenario-test/*.docx
+
+# ========================
 # Docker
 # ========================
 docker-compose.override.yml
-
-# ========================
-# Environment (sensitif)
-# ========================
-.env
-!.env.example

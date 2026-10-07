@@ -5,6 +5,10 @@ from fastapi.responses import FileResponse
 from fastapi.concurrency import run_in_threadpool
 import uvicorn
 
+from RAG.summarizer import extract_text_from_pdfs, summarize_context, extract_tender_metadata_from_docs
+from RAG.tools import generate_rks_document, export_rks_to_docx
+from tender.generator import generate_tender_document, export_tender_to_docx
+
 app = FastAPI(title="Pertamina RKS & Tender AI System - API")
 
 
@@ -13,16 +17,25 @@ async def root():
     return {"status": "success", "message": "API is running. Welcome to Pertamina RKS & Tender AI System - Dapur AI."}
 
 
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "RAG", "Data")
+
+# filename -> {"state": "processing|done|error", "chunks": int, "error": str}
+INGEST_STATUS: dict = {}
+
+
 def _run_ingest(file_path: str):
-    """Background task: ingest a single PDF into Qdrant vector store."""
+    """Background task: ingest a single PDF (only that file) into Qdrant."""
+    name = os.path.basename(file_path)
+    INGEST_STATUS[name] = {"state": "processing", "chunks": 0, "error": ""}
     try:
         from RAG.vector_store import Vector_Store
         vs = Vector_Store()
-        data_dir = os.path.dirname(file_path)
-        vs.load_documents(data_dir)
-        print(f"[Ingest] Successfully ingested documents from {data_dir}")
+        n = vs.ingest_file(file_path)
+        INGEST_STATUS[name] = {"state": "done", "chunks": n, "error": ""}
+        print(f"[Ingest] {name}: {n} chunks ingested")
     except Exception as e:
-        print(f"[Ingest] Error: {e}")
+        INGEST_STATUS[name] = {"state": "error", "chunks": 0, "error": str(e)}
+        print(f"[Ingest] Error on {name}: {e}")
 
 
 @app.post("/api/ingest-pdf")
@@ -30,19 +43,116 @@ async def ingest_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
-    # Save the file to RAG/Data
-    save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "RAG", "Data")
-    os.makedirs(save_dir, exist_ok=True)
-    file_path = os.path.join(save_dir, file.filename)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    safe_name = os.path.basename(file.filename)
+    file_path = os.path.join(DATA_DIR, safe_name)
 
     with open(file_path, "wb") as f:
         content = await file.read()
         f.write(content)
 
-    # Start ingestion in the background to prevent timeout
+    INGEST_STATUS[safe_name] = {"state": "processing", "chunks": 0, "error": ""}
     background_tasks.add_task(_run_ingest, file_path)
 
-    return {"status": "success", "message": f"File {file.filename} uploaded and ingestion started in the background."}
+    return {"status": "success", "message": f"File {safe_name} uploaded and ingestion started in the background."}
+
+
+@app.post("/api/ingest-all")
+async def ingest_all(background_tasks: BackgroundTasks):
+    """Ingest every PDF currently in RAG/Data (one by one, idempotent)."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    pdfs = [f for f in os.listdir(DATA_DIR) if f.lower().endswith(".pdf")]
+    for name in pdfs:
+        INGEST_STATUS[name] = {"state": "processing", "chunks": 0, "error": ""}
+
+    def _run_all():
+        for name in pdfs:
+            _run_ingest(os.path.join(DATA_DIR, name))
+
+    background_tasks.add_task(_run_all)
+    return {"status": "success", "message": f"Ingest {len(pdfs)} file PDF dimulai di latar belakang.", "files": pdfs}
+
+
+@app.get("/api/knowledge")
+async def list_knowledge():
+    """List PDFs on disk with their ingest state and chunk count in Qdrant."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    on_disk = sorted(f for f in os.listdir(DATA_DIR) if f.lower().endswith(".pdf"))
+    try:
+        from RAG.vector_store import Vector_Store
+        counts = await run_in_threadpool(lambda: Vector_Store().list_sources())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gagal membaca Qdrant: {e}")
+
+    names = sorted(set(on_disk) | set(counts) | set(INGEST_STATUS))
+    items = []
+    for n in names:
+        st = INGEST_STATUS.get(n, {})
+        chunks = counts.get(n, 0)
+        state = st.get("state") or ("done" if chunks else "not_ingested")
+        if state == "done" and not chunks:
+            state = "not_ingested"
+        items.append({
+            "filename": n,
+            "on_disk": n in on_disk,
+            "chunks": chunks,
+            "state": state,
+            "error": st.get("error", ""),
+        })
+    return {"status": "success", "total_chunks": sum(counts.values()), "items": items}
+
+
+@app.delete("/api/knowledge/{filename}")
+async def delete_knowledge(filename: str):
+    """Remove a document's chunks from Qdrant and delete the PDF from disk."""
+    name = os.path.basename(filename)
+    try:
+        from RAG.vector_store import Vector_Store
+        await run_in_threadpool(lambda: Vector_Store().delete_source(name))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gagal menghapus dari Qdrant: {e}")
+    path = os.path.join(DATA_DIR, name)
+    if os.path.exists(path):
+        os.remove(path)
+    INGEST_STATUS.pop(name, None)
+    return {"status": "success", "message": f"{name} dihapus dari Knowledge Base."}
+
+
+@app.post("/api/extract-tender-metadata")
+async def extract_tender_metadata(
+    tanggal: str = Form(""),
+    resiko_csms: str = Form("Tinggi"),
+    file_rks: Optional[UploadFile] = File(None, description="Dokumen RKS (PDF)"),
+    file_boq: Optional[UploadFile] = File(None, description="Dokumen BOQ (PDF or Excel)"),
+):
+    """Scan and extract procurement metadata from RKS & BOQ files using LLM."""
+    try:
+        rks_bytes = None
+        rks_filename = None
+        if file_rks and file_rks.filename:
+            rks_bytes = await file_rks.read()
+            rks_filename = file_rks.filename
+
+        boq_bytes = None
+        boq_filename = None
+        if file_boq and file_boq.filename:
+            boq_bytes = await file_boq.read()
+            boq_filename = file_boq.filename
+
+        extracted_data = await run_in_threadpool(
+            extract_tender_metadata_from_docs,
+            rks_bytes=rks_bytes,
+            rks_filename=rks_filename,
+            boq_bytes=boq_bytes,
+            boq_filename=boq_filename,
+            tanggal_str=tanggal,
+            resiko_csms=resiko_csms
+        )
+
+        return {"status": "success", "data": extracted_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/generate-tender")
 async def generate_tender(
@@ -64,14 +174,11 @@ async def generate_tender(
     prebid_tempat: str = Form("Microsoft Teams Meeting dengan link yang disampaikan melalui email Undangan Prebid Meeting"),
     pemasukan_mulai: str = Form("Senin, 08 Desember 2025"),
     pemasukan_selesai: str = Form("Senin, 15 Desember 2025"),
+    context_summary: str = Form(""),
     file: Optional[UploadFile] = File(None, description="Upload RKS or BOQ PDF file for context")
 ):
     try:
-        from RAG.summarizer import extract_text_from_pdfs, summarize_context
-        from tender.generator import generate_tender_document, export_tender_to_docx
-
-        context_summary = ""
-        if file and file.filename and file.filename.lower().endswith(".pdf"):
+        if not context_summary and file and file.filename and file.filename.lower().endswith(".pdf"):
             print(f"Receiving context file: {file.filename}...")
             content = await file.read()
             raw_text = await run_in_threadpool(extract_text_from_pdfs, [content])
@@ -150,8 +257,6 @@ async def generate_rks(
     file: UploadFile = File(..., description="Upload BOQ/Context PDF file here")
 ):
     try:
-        from RAG.summarizer import extract_text_from_pdfs, summarize_context
-        from RAG.tools import generate_rks_document, export_rks_to_docx
 
         context_summary = ""
         
