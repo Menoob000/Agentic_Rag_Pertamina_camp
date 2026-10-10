@@ -5,9 +5,11 @@ from datetime import datetime, date, timedelta
 
 # FastAPI Backend URLs
 BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
-API_RKS_URL = f"{BASE_URL}/api/generate-rks"
-API_TENDER_URL = f"{BASE_URL}/api/generate-tender"
-API_EXTRACT_TENDER_URL = f"{BASE_URL}/api/extract-tender-metadata"
+API_KB_INGEST_URL = f"{BASE_URL}/api/kb/ingest"
+API_KB_LIST_URL = f"{BASE_URL}/api/kb/list"
+API_KB_DELETE_URL = f"{BASE_URL}/api/kb/delete"
+API_KONTRAK_URL = f"{BASE_URL}/api/generate-kontrak"
+API_AMENDEMEN_URL = f"{BASE_URL}/api/generate-amendemen"
 
 INDONESIAN_MONTHS = [
     "Januari", "Februari", "Maret", "April", "Mei", "Juni",
@@ -43,17 +45,23 @@ with st.sidebar:
         "Pilih Jenis Dokumen yang Ingin Dibuat:",
         options=[
             "📋 Dokumen RKS",
-            "📄 Dokumen Tender (IKPP & Kontrak)"
+            "📄 Dokumen Tender (IKPP & Kontrak)",
+            "📝 Rancangan Kontrak Definitif",
+            "📎 Draft Amendemen / Addendum",
+            "🗄️ Knowledge Base",
         ],
         index=1,
-        help="Pilih antara pembuatan Dokumen RKS teknis atau Paket Dokumen Tender lengkap (IKPP + Rancangan Kontrak)."
+        help="Pilih modul yang ingin digunakan."
     )
 
     st.divider()
     st.info(
         "💡 **Panduan Cepat:**\n\n"
         "• **RKS:** Menyusun Rencana Kerja & Syarat teknis.\n"
-        "• **Dokumen Tender:** Menyusun paket tender resmi (IKPP Bab I-II, Lampiran 1A-8, dan Bagian B Rancangan Kontrak)."
+        "• **Dokumen Tender:** Menyusun paket tender resmi (IKPP Bab I-II, Lampiran 1A-8, dan Bagian B Rancangan Kontrak).\n"
+        "• **Rancangan Kontrak:** Menyusun Kontrak mandiri yang komprehensif.\n"
+        "• **Amendemen:** Menyusun Draft Addendum Kontrak yang sudah berjalan.\n"
+        "• **Knowledge Base:** Upload & kelola dokumen referensi untuk RAG."
     )
 
 
@@ -133,7 +141,7 @@ if doc_type == "📋 Dokumen RKS":
 # ──────────────────────────────────────────────────────────────
 # MODE 2: DOKUMEN TENDER (IKPP & KONTRAK)
 # ──────────────────────────────────────────────────────────────
-else:
+elif doc_type == "📄 Dokumen Tender (IKPP & Kontrak)":
     st.title("📄 Pertamina Dokumen Tender Generator")
     st.write(
         "Menghasilkan paket resmi **Dokumen Tender Pertamina Patra Niaga** (Versi 2.0) lengkap: "
@@ -356,3 +364,331 @@ else:
                         st.info("Pastikan server FastAPI sudah berjalan: `uv run uvicorn api:app --reload`")
                         st.caption(f"Error detail: {e}")
 
+
+# ──────────────────────────────────────────────────────────────
+# MODE 3: RANCANGAN KONTRAK DEFINITIF
+# ──────────────────────────────────────────────────────────────
+elif doc_type == "📝 Rancangan Kontrak Definitif":
+    st.title("📝 Generator Rancangan Kontrak")
+    st.write("Isi formulir di bawah untuk men-generate Rancangan Kontrak (20 Pasal) secara otomatis.")
+    
+    with st.form("form_kontrak"):
+        col1, col2 = st.columns(2)
+        with col1:
+            nama_pekerjaan = st.text_input("Judul Pekerjaan*", placeholder="Contoh: Pengadaan Material X")
+            nomor_kontrak = st.text_input("Nomor Kontrak*", value="KTR-001/PND/2026")
+            tanggal_kontrak = st.text_input("Tanggal Kontrak*", value="01 Januari 2026")
+            lokasi_pekerjaan = st.text_input("Lokasi Pekerjaan*", placeholder="Contoh: Balikpapan")
+            jenis_kontrak = st.selectbox("Jenis Kontrak*", ["Gabungan Harga Satuan & Lumpsum", "Lumpsum", "Harga Satuan", "Terima Jadi (Turnkey)"])
+            
+        with col2:
+            nama_vendor = st.text_input("Nama Penyedia (Vendor)*", placeholder="PT Nama Vendor")
+            npwp_vendor = st.text_input("NPWP Vendor*", placeholder="00.000.000.0-000.000")
+            nilai_kontrak = st.text_input("Nilai Kontrak (Rp)*", value="1000000000", help="Hanya angka")
+            sistem_pembayaran = st.selectbox("Sistem Pembayaran*", ["Monthly Progress", "Milestone", "Termin", "Sekaligus (Lumpsum)"])
+            
+        col3, col4 = st.columns(2)
+        with col3:
+            durasi_hari = st.number_input("Durasi Pekerjaan (Hari)*", min_value=1, value=180)
+            masa_pemeliharaan = st.number_input("Masa Pemeliharaan (Hari)*", min_value=0, value=90)
+            resiko_csms = st.selectbox("Risiko CSMS*", ["Tinggi", "Sedang", "Rendah"])
+        
+        with col4:
+            pejabat_ttd = st.text_input("Jabatan Penandatangan Pertamina*", value="Executive General Manager")
+            file_upload = st.file_uploader("Upload PDF (RKS/BOQ) untuk Konteks Lingkup (Opsional)", type=["pdf"])
+
+        st.markdown("---")
+        submitted = st.form_submit_button("🚀 Generate Rancangan Kontrak (.docx)", use_container_width=True)
+
+    if submitted:
+        if not nama_pekerjaan or not nomor_kontrak or not nama_vendor or not nilai_kontrak:
+            st.warning("⚠️ Mohon lengkapi field yang bertanda bintang (*).")
+        else:
+            with st.spinner("⏳ Men-generate Rancangan Kontrak (Estimasi 1-2 Menit)..."):
+                try:
+                    payload_data = {
+                        "nama_pekerjaan": nama_pekerjaan,
+                        "nomor_kontrak": nomor_kontrak,
+                        "tanggal_kontrak": tanggal_kontrak,
+                        "lokasi_pekerjaan": lokasi_pekerjaan,
+                        "jenis_kontrak": jenis_kontrak,
+                        "nama_vendor": nama_vendor,
+                        "npwp_vendor": npwp_vendor,
+                        "nilai_kontrak": nilai_kontrak,
+                        "sistem_pembayaran": sistem_pembayaran,
+                        "durasi_hari": str(durasi_hari),
+                        "masa_pemeliharaan": str(masa_pemeliharaan),
+                        "resiko_csms": resiko_csms,
+                        "pejabat_ttd_pertamina": pejabat_ttd
+                    }
+                    
+                    files_payload = None
+                    if file_upload:
+                        files_payload = {"file": (file_upload.name, file_upload.getvalue(), "application/pdf")}
+                        
+                    res = requests.post(API_KONTRAK_URL, data=payload_data, files=files_payload, timeout=600)
+                    if res.status_code == 200:
+                        st.success("✅ Rancangan Kontrak berhasil dibuat!")
+                        st.download_button(
+                            label="⬇️ Download Rancangan Kontrak (.docx)",
+                            data=res.content,
+                            file_name=f"Rancangan_Kontrak_{nama_pekerjaan.replace(' ', '_')[:30]}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            type="primary",
+                            use_container_width=True
+                        )
+                    else:
+                        st.error(f"❌ Server error (Status: {res.status_code})")
+                        try:
+                            st.json(res.json())
+                        except:
+                            st.text(res.text)
+                except Exception as e:
+                    st.error(f"❌ Terjadi kesalahan koneksi: {e}")
+
+
+# ──────────────────────────────────────────────────────────────
+# MODE 4: DRAFT AMENDEMEN / ADDENDUM
+# ──────────────────────────────────────────────────────────────
+elif doc_type == "📎 Draft Amendemen / Addendum":
+    st.title("📎 Generator Draft Amendemen (Addendum)")
+    st.write("Buat draft addendum untuk kontrak yang sudah berjalan. Masukkan informasi kontrak asal dan rincian perubahan.")
+    
+    with st.form("form_amendemen"):
+        st.subheader("1. Informasi Addendum & Kontrak Asal")
+        col1, col2 = st.columns(2)
+        with col1:
+            nomor_addendum = st.text_input("Nomor Addendum*", value="Addendum Ke-1")
+            tanggal_amendemen = st.text_input("Tanggal Addendum*", value="01 Februari 2026")
+            tanggal_efektif = st.text_input("Tanggal Berlaku Efektif*", value="01 Februari 2026")
+        with col2:
+            nomor_kontrak_asal = st.text_input("Nomor Kontrak Asal*", placeholder="KTR-XXX")
+            judul_pekerjaan = st.text_input("Judul Pekerjaan*", placeholder="Pengadaan Material X")
+            tanggal_kontrak_asal = st.text_input("Tanggal Kontrak Asal*", value="01 Januari 2026")
+            
+        col3, col4 = st.columns(2)
+        with col3:
+            nama_vendor = st.text_input("Nama Penyedia (Vendor)*", placeholder="PT Nama Vendor")
+            nilai_asal = st.text_input("Nilai Kontrak Asal*", placeholder="Rp1.000.000.000,00")
+            ttd_pertamina = st.text_input("Pejabat TTD Pertamina*", value="Executive General Manager")
+        with col4:
+            ttd_vendor = st.text_input("Jabatan Penandatangan Vendor*", value="Direktur Utama")
+            file_upload = st.file_uploader("Upload PDF Kontrak Asal (Opsional)", type=["pdf"])
+
+        st.markdown("---")
+        st.subheader("2. Detail Perubahan")
+        import json
+        st.info("💡 Karena limitasi form UI standar, isi satu poin perubahan utama. LLM akan merumuskannya dalam Legal Drafting.")
+        
+        jenis_perubahan = st.selectbox("Kategori Utama Perubahan*", ["Nilai Kontrak", "Waktu Pelaksanaan", "Lingkup Pekerjaan", "Personel Inti", "Harga Satuan / BOQ", "Sistem Pembayaran", "Lainnya"])
+        pasal_referensi = st.text_input("Referensi Pasal yang Diubah*", placeholder="Contoh: Pasal 3 - Jangka Waktu Pelaksanaan")
+        isi_lama = st.text_area("Kondisi / Klausul Lama*", placeholder="Tuliskan aturan atau bunyi pasal sebelumnya...")
+        isi_baru = st.text_area("Kondisi / Klausul Baru*", placeholder="Tuliskan aturan atau nilai yang baru disepakati...")
+        alasan = st.text_input("Alasan / Dasar Perubahan*", placeholder="Contoh: Berita Acara Kesepakatan tanggal X")
+        
+        st.markdown("---")
+        submitted = st.form_submit_button("🚀 Generate Draft Amendemen (.docx)", use_container_width=True)
+
+    if submitted:
+        if not nomor_addendum or not nomor_kontrak_asal or not isi_baru:
+            st.warning("⚠️ Mohon lengkapi field yang bertanda bintang (*).")
+        else:
+            with st.spinner("⏳ Men-generate Draft Amendemen (Estimasi 1-2 Menit)..."):
+                try:
+                    perubahan_detail = [{
+                        "jenis_perubahan": jenis_perubahan,
+                        "pasal_referensi": pasal_referensi,
+                        "isi_lama": isi_lama,
+                        "isi_baru": isi_baru,
+                        "alasan": alasan
+                    }]
+                    
+                    payload_data = {
+                        "nomor_addendum": nomor_addendum,
+                        "tanggal_amendemen": tanggal_amendemen,
+                        "tanggal_berlaku_efektif": tanggal_efektif,
+                        "nomor_kontrak_asal": nomor_kontrak_asal,
+                        "judul_pekerjaan": judul_pekerjaan,
+                        "tanggal_kontrak_asal": tanggal_kontrak_asal,
+                        "nama_vendor": nama_vendor,
+                        "nilai_kontrak_asal_str": nilai_asal,
+                        "ttd_pertamina_nama": "",
+                        "ttd_pertamina_jabatan": ttd_pertamina,
+                        "ttd_vendor_nama": "",
+                        "ttd_vendor_jabatan": ttd_vendor,
+                        "detail_perubahan_json": json.dumps(perubahan_detail)
+                    }
+                    
+                    files_payload = None
+                    if file_upload:
+                        files_payload = {"file": (file_upload.name, file_upload.getvalue(), "application/pdf")}
+                        
+                    res = requests.post(API_AMENDEMEN_URL, data=payload_data, files=files_payload, timeout=600)
+                    if res.status_code == 200:
+                        st.success("✅ Draft Amendemen berhasil dibuat!")
+                        st.download_button(
+                            label="⬇️ Download Draft Amendemen (.docx)",
+                            data=res.content,
+                            file_name=f"Draft_Amendemen_{judul_pekerjaan.replace(' ', '_')[:30]}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            type="primary",
+                            use_container_width=True
+                        )
+                    else:
+                        st.error(f"❌ Server error (Status: {res.status_code})")
+                        try:
+                            st.json(res.json())
+                        except:
+                            st.text(res.text)
+                except Exception as e:
+                    st.error(f"❌ Terjadi kesalahan koneksi: {e}")
+
+# ──────────────────────────────────────────────────────────────
+# MODE 5: KNOWLEDGE BASE MANAGEMENT
+# ──────────────────────────────────────────────────────────────
+elif doc_type == "🗄️ Knowledge Base":
+    st.title("🗄️ Knowledge Base Management")
+    st.write(
+        "Upload dan kelola dokumen referensi PDF yang digunakan AI sebagai konteks "
+        "saat menyusun RKS, Rancangan Kontrak, dan Draft Amendemen. "
+        "Dokumen akan diproses (**chunking + embedding**) dan disimpan ke **Qdrant Cloud**."
+    )
+    st.markdown("---")
+
+    COLLECTION_LABELS = {
+        "rks_kb": "📋 RKS Knowledge Base",
+        "contract_kb": "📝 Contract Knowledge Base",
+        "amendment_kb": "📎 Amendment Knowledge Base",
+    }
+    COLLECTION_DESCRIPTIONS = {
+        "rks_kb": "Dokumen referensi RKS (template, contoh RKS serupa, spesifikasi teknis).",
+        "contract_kb": "Template dan contoh Rancangan Kontrak Definitif Pertamina.",
+        "amendment_kb": "Contoh Addendum / Amendemen kontrak yang pernah dibuat.",
+    }
+
+    col_sel, col_info = st.columns([2, 3])
+    with col_sel:
+        selected_collection = st.selectbox(
+            "📂 Pilih Knowledge Base Collection",
+            options=list(COLLECTION_LABELS.keys()),
+            format_func=lambda k: COLLECTION_LABELS[k],
+            key="kb_collection_selector",
+        )
+    with col_info:
+        st.info(f"ℹ️ {COLLECTION_DESCRIPTIONS[selected_collection]}")
+
+    st.markdown("---")
+
+    # ── SECTION A: Upload & Ingest ──────────────────────────
+    st.subheader("⬆️ Upload Dokumen Baru")
+    st.caption(
+        "Upload satu atau lebih file PDF. AI akan melakukan parsing, chunking semantik, "
+        "dan embedding secara otomatis. Re-upload file dengan nama sama akan menggantikan versi lama."
+    )
+
+    uploaded_files = st.file_uploader(
+        "Pilih file PDF (bisa multi-file)",
+        type=["pdf"],
+        accept_multiple_files=True,
+        key="kb_file_uploader",
+    )
+
+    if st.button("🚀 Upload & Ingest ke Knowledge Base", type="primary", use_container_width=True, key="kb_ingest_btn"):
+        if not uploaded_files:
+            st.warning("⚠️ Pilih minimal satu file PDF terlebih dahulu.")
+        else:
+            with st.spinner(f"⏳ Sedang memproses {len(uploaded_files)} file... (chunking + embedding, mohon tunggu)"):
+                files_payload = [
+                    ("files", (f.name, f.getvalue(), "application/pdf"))
+                    for f in uploaded_files
+                ]
+                data_payload = {"collection": selected_collection}
+                try:
+                    res = requests.post(
+                        API_KB_INGEST_URL,
+                        data=data_payload,
+                        files=files_payload,
+                        timeout=600,
+                    )
+                    if res.status_code == 200:
+                        results = res.json().get("results", [])
+                        success_count = sum(1 for r in results if r.get("status") == "success")
+                        error_count = sum(1 for r in results if r.get("status") == "error")
+
+                        if success_count > 0:
+                            st.success(f"✅ {success_count} file berhasil diingestion!")
+                        if error_count > 0:
+                            st.warning(f"⚠️ {error_count} file gagal diproses.")
+
+                        # Show per-file result
+                        for r in results:
+                            status_icon = "✅" if r["status"] == "success" else ("⚠️" if r["status"] == "skipped" else "❌")
+                            detail = f"{r.get('chunks', '')} chunks" if r["status"] == "success" else r.get("reason", "")
+                            st.caption(f"{status_icon} **{r['filename']}** — {detail}")
+
+                        # Refresh document list
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Server error (Status: {res.status_code})")
+                        try:
+                            st.json(res.json())
+                        except Exception:
+                            st.text(res.text)
+                except requests.exceptions.RequestException as e:
+                    st.error("❌ Gagal terhubung ke API backend.")
+                    st.info("Pastikan server FastAPI sudah berjalan: `uv run uvicorn api:app --reload`")
+                    st.caption(f"Error detail: {e}")
+
+    st.markdown("---")
+
+    # ── SECTION B: List & Delete ────────────────────────────
+    st.subheader(f"📋 Dokumen Terindex — {COLLECTION_LABELS[selected_collection]}")
+
+    col_refresh, _ = st.columns([1, 4])
+    with col_refresh:
+        refresh_clicked = st.button("🔄 Refresh Daftar", key="kb_refresh_btn")
+
+    try:
+        res_list = requests.get(
+            API_KB_LIST_URL,
+            params={"collection": selected_collection},
+            timeout=30,
+        )
+        if res_list.status_code == 200:
+            list_data = res_list.json()
+            documents: dict = list_data.get("documents", {})
+            total = list_data.get("total", 0)
+
+            if total == 0:
+                st.info("📭 Belum ada dokumen yang terindex di collection ini. Upload PDF di atas untuk memulai.")
+            else:
+                st.caption(f"Total: **{total} dokumen** tersimpan di `{selected_collection}`")
+
+                # Render table with per-row delete button
+                for filename, chunk_count in documents.items():
+                    col_name, col_chunks, col_del = st.columns([4, 1, 1])
+                    with col_name:
+                        st.write(f"📄 {filename}")
+                    with col_chunks:
+                        st.write(f"`{chunk_count}` chunks")
+                    with col_del:
+                        del_key = f"del_{selected_collection}_{filename}"
+                        if st.button("🗑️ Hapus", key=del_key, type="secondary"):
+                            try:
+                                del_res = requests.delete(
+                                    API_KB_DELETE_URL,
+                                    data={"collection": selected_collection, "filename": filename},
+                                    timeout=30,
+                                )
+                                if del_res.status_code == 200:
+                                    st.success(f"✅ '{filename}' berhasil dihapus.")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ Gagal menghapus: {del_res.text}")
+                            except Exception as e:
+                                st.error(f"❌ Error: {e}")
+        else:
+            st.error(f"❌ Gagal mengambil daftar dokumen (Status: {res_list.status_code})")
+    except requests.exceptions.RequestException:
+        st.warning("⚠️ Tidak dapat terhubung ke backend. Pastikan FastAPI sudah berjalan.")
+        st.info("`uv run uvicorn api:app --reload --port 8000`")
