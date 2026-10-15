@@ -33,7 +33,7 @@ VALID_COLLECTIONS = {
 @app.post("/api/kb/ingest", summary="Ingest PDF into Knowledge Base")
 async def kb_ingest(
     collection: str = Form(..., description="Target collection: rks_kb | contract_kb | amendment_kb"),
-    files: List[UploadFile] = File(..., description="One or more PDF files to ingest"),
+    files: List[UploadFile] = File(default=[], description="One or more PDF files to ingest"),
 ):
     """
     Upload one or more PDF files and ingest them into the specified Qdrant collection.
@@ -45,21 +45,28 @@ async def kb_ingest(
             detail=f"Invalid collection '{collection}'. Must be one of: {list(VALID_COLLECTIONS.keys())}"
         )
 
+    if not files:
+        return {"collection": collection, "results": [], "message": "Tidak ada file yang diunggah"}
+
     results = []
     vs = Vector_Store(collection_name=collection)
 
     for file in files:
-        if not file.filename or not file.filename.lower().endswith(".pdf"):
-            results.append({"filename": file.filename, "status": "skipped", "reason": "not a PDF"})
+        fname = file.filename or "unknown.pdf"
+        if not fname.lower().endswith(".pdf"):
+            results.append({"filename": fname, "status": "skipped", "reason": "Bukan file PDF (.pdf)"})
             continue
         try:
             content = await file.read()
-            n_chunks = await run_in_threadpool(vs.ingest_bytes, content, file.filename)
-            results.append({"filename": file.filename, "status": "success", "chunks": n_chunks})
+            if not content or len(content) == 0:
+                results.append({"filename": fname, "status": "error", "reason": "File kosong (0 bytes)"})
+                continue
+            n_chunks = await run_in_threadpool(vs.ingest_bytes, content, fname)
+            results.append({"filename": fname, "status": "success", "chunks": n_chunks})
         except ValueError as e:
-            results.append({"filename": file.filename, "status": "error", "reason": str(e)})
+            results.append({"filename": fname, "status": "error", "reason": str(e)})
         except Exception as e:
-            results.append({"filename": file.filename, "status": "error", "reason": f"Unexpected error: {e}"})
+            results.append({"filename": fname, "status": "error", "reason": f"Unexpected error: {e}"})
 
     return {"collection": collection, "results": results}
 
