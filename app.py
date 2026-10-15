@@ -10,6 +10,9 @@ API_KB_LIST_URL = f"{BASE_URL}/api/kb/list"
 API_KB_DELETE_URL = f"{BASE_URL}/api/kb/delete"
 API_KONTRAK_URL = f"{BASE_URL}/api/generate-kontrak"
 API_AMENDEMEN_URL = f"{BASE_URL}/api/generate-amendemen"
+API_EXTRACT_TENDER_URL= f"{BASE_URL}/api/extract-tender-metadata"
+API_TENDER_URL = f"{BASE_URL}/api/generate-tender"
+API_RKS_URL = f"{BASE_URL}/api/generate-rks"
 
 INDONESIAN_MONTHS = [
     "Januari", "Februari", "Maret", "April", "Mei", "Juni",
