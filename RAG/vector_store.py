@@ -100,7 +100,7 @@ class Vector_Store:
     # ── Internal helpers ──────────────────────────────────────
 
     def _ensure_collection(self) -> None:
-        """Create the Qdrant collection if it does not yet exist."""
+        """Create the Qdrant collection if it does not yet exist and ensure payload index."""
         client = _get_client()
         if not client.collection_exists(self.collection_name):
             client.create_collection(
@@ -113,6 +113,16 @@ class Vector_Store:
             logger.info(
                 "[VectorStore] Created collection '%s'", self.collection_name
             )
+
+        # Ensure payload index on metadata.source for idempotent delete & filtering
+        try:
+            client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name="metadata.source",
+                field_schema=models.PayloadSchemaType.KEYWORD,
+            )
+        except Exception:
+            pass  # Index already exists or already created
 
     @property
     def _doc_store(self) -> QdrantVectorStore:
