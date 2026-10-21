@@ -96,11 +96,13 @@ class Vector_Store:
     def __init__(self, collection_name: str = "rks_kb"):
         self.collection_name = collection_name
         self._ensure_collection()
+        print(self.collection_name)
+
 
     # ── Internal helpers ──────────────────────────────────────
 
     def _ensure_collection(self) -> None:
-        """Create the Qdrant collection if it does not yet exist."""
+        """Create the Qdrant collection if it does not yet exist and ensure payload index exists."""
         client = _get_client()
         if not client.collection_exists(self.collection_name):
             client.create_collection(
@@ -112,6 +114,27 @@ class Vector_Store:
             )
             logger.info(
                 "[VectorStore] Created collection '%s'", self.collection_name
+            )
+
+        # Ensure index on 'metadata.source' exists for filtering/deleting (required by Qdrant Strict Mode)
+        try:
+            coll_info = client.get_collection(self.collection_name)
+            schema = coll_info.payload_schema or {}
+            print(f"Total points: {coll_info.points_count}")
+            if "metadata.source" not in schema:
+                client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="metadata.source",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                logger.info(
+                    "[VectorStore] Created payload index for 'metadata.source' in '%s'",
+                    self.collection_name,
+                )
+        except Exception as e:
+            logger.warning(
+                "[VectorStore] Could not verify/create payload index for '%s': %s",
+                self.collection_name, e
             )
 
     @property

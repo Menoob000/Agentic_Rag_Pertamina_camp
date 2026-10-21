@@ -619,18 +619,17 @@ elif doc_type == "🗄️ Knowledge Base":
                         error_count = sum(1 for r in results if r.get("status") == "error")
 
                         if success_count > 0:
-                            st.success(f"✅ {success_count} file berhasil diingestion!")
+                            st.success(f"✅ {success_count} file berhasil di-ingest ke '{selected_collection}'!")
+                            st.toast(f"✅ {success_count} file berhasil di-ingest!")
                         if error_count > 0:
                             st.warning(f"⚠️ {error_count} file gagal diproses.")
 
-                        # Show per-file result
-                        for r in results:
-                            status_icon = "✅" if r["status"] == "success" else ("⚠️" if r["status"] == "skipped" else "❌")
-                            detail = f"{r.get('chunks', '')} chunks" if r["status"] == "success" else r.get("reason", "")
-                            st.caption(f"{status_icon} **{r['filename']}** — {detail}")
-
-                        # Refresh document list
-                        st.rerun()
+                        # Show per-file result in an expander
+                        with st.expander("📄 Rincian Status Per-File", expanded=True):
+                            for r in results:
+                                status_icon = "✅" if r["status"] == "success" else ("⚠️" if r["status"] == "skipped" else "❌")
+                                detail = f"{r.get('chunks', '')} chunks" if r["status"] == "success" else r.get("reason", "")
+                                st.write(f"{status_icon} **{r['filename']}** — {detail}")
                     else:
                         st.error(f"❌ Server error (Status: {res.status_code})")
                         try:

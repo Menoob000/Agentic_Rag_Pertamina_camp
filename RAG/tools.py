@@ -79,6 +79,23 @@ Referensi RKS Sejenis:
 Output HARUS berupa JSON valid dengan schema berikut:
 {_RKS_JSON_SCHEMA}
 
+Untuk penomoran setiap subbab, diulang kembali dari 1. Jangan ada subbab yang nomornya terhubung. Contoh :
+3.3 Sistem Pelapisan (Coating)
+1.	Persiapan permukaan wajib dilakukan blast cleaning hingga standar ISO 8501-1 : Sa 2.5 / SSPC-SP10 sebelum aplikasi cat.
+2.	Ketebalan minimum coating ditetapkan 250–275 µm (DFT) dengan metode airless spray.
+3.	Zona Internal: Amine adduct epoxy (anti-korosi dan food/water grade compliant).
+
+3.4 Toleransi Pengelasan dan Fabrikasi
+1.	Seluruh pengelasan mengikuti WPS/PQR yang telah disetujui dan dikerjakan oleh welder bersertifikat.
+2.	Toleransi kelurusan shell maksimum ±3 mm per 10 meter tinggi.
+
+Jika ada subbab yang informasinya kurang banyak sehingga isinya kosong, hilangkan saja subbab tersebut. Contoh : 
+(BAB III - SPESIFIKASI TEKNIS DAN MATERIAL
+3.1 Standar Material Baja dan Pipa
+3.2 Mutu Beton dan Pondasi
+Pondasi menggunakan spun pile mutu K450 dengan kedalaman tanam 18 meter. Pengecoran kepala tiang dan pile cap menggunakan ready mix K250, sedangkan poer dan slab menggunakan ready mix K300. Urugan pasir pilihan wajib dipadatkan hingga mencapai densitas minimum sesuai hasil uji laboratorium. Pembesian beton )
+maka bab 3.1 hilangkan saja, dan 3.2 Mutu Beton dan Pondasi menjadi bab 3.1.
+
 Buat minimal 5 bab (BAB I hingga BAB V atau lebih sesuai jenis pekerjaan).
 Setiap bab harus memiliki konten yang relevan dan substantif.
 Jawab HANYA dengan JSON, tanpa teks lain.
